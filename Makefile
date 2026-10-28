@@ -1,28 +1,37 @@
-PREFIX ?= /usr/local
-BUILD_DIR = .build/release
 APP_NAME = Twinly.app
 BUILD_APP = build/$(APP_NAME)
 DMG_NAME = Twinly.dmg
 BUILD_DMG = build/$(DMG_NAME)
 
-.PHONY: all build test app dmg clean install
+.PHONY: all build build-universal test app dmg clean install
 
-all: build
+all: build-universal
 
 build:
 	swift build -c release
 
+build-universal:
+	@echo "Building for Apple Silicon (arm64)..."
+	swift build -c release --triple arm64-apple-macosx13.0
+	@echo "Building for Intel (x86_64)..."
+	swift build -c release --triple x86_64-apple-macosx13.0
+	@mkdir -p .build/universal
+	@lipo -create .build/arm64-apple-macosx/release/Twinly .build/x86_64-apple-macosx/release/Twinly -output .build/universal/Twinly
+	@lipo -create .build/arm64-apple-macosx/release/TwinlyLauncher .build/x86_64-apple-macosx/release/TwinlyLauncher -output .build/universal/TwinlyLauncher
+	@echo "Created universal binaries successfully!"
+
 test:
 	swift run TwinlyTestsRunner
 
-app: build
+app: build-universal
 	@echo "Creating $(APP_NAME)..."
+	@rm -rf $(BUILD_APP)
 	@mkdir -p $(BUILD_APP)/Contents/MacOS
 	@mkdir -p $(BUILD_APP)/Contents/Resources
 	@mkdir -p $(BUILD_APP)/Contents/Helpers
-	@cp $(BUILD_DIR)/Twinly $(BUILD_APP)/Contents/MacOS/Twinly
-	@cp $(BUILD_DIR)/TwinlyLauncher $(BUILD_APP)/Contents/Helpers/TwinlyLauncher
-	@cp $(BUILD_DIR)/TwinlyLauncher $(BUILD_APP)/Contents/Resources/TwinlyLauncher
+	@cp .build/universal/Twinly $(BUILD_APP)/Contents/MacOS/Twinly
+	@cp .build/universal/TwinlyLauncher $(BUILD_APP)/Contents/Helpers/TwinlyLauncher
+	@cp .build/universal/TwinlyLauncher $(BUILD_APP)/Contents/Resources/TwinlyLauncher
 	@cp Resources/Info.plist $(BUILD_APP)/Contents/Info.plist
 	@cp Resources/AppIcon.icns $(BUILD_APP)/Contents/Resources/AppIcon.icns
 	@chmod +x $(BUILD_APP)/Contents/MacOS/Twinly
