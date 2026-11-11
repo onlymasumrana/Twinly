@@ -2,8 +2,10 @@ APP_NAME = Twinly.app
 BUILD_APP = build/$(APP_NAME)
 DMG_NAME = Twinly.dmg
 BUILD_DMG = build/$(DMG_NAME)
+ZIP_NAME = Twinly.zip
+BUILD_ZIP = build/$(ZIP_NAME)
 
-.PHONY: all build build-universal test app dmg clean install
+.PHONY: all build build-universal test app dmg zip clean install
 
 all: build-universal
 
@@ -49,6 +51,12 @@ dmg: app
 	@hdiutil create -volname "Twinly" -srcfolder build/dmg_temp -ov -format UDZO $(BUILD_DMG)
 	@rm -rf build/dmg_temp
 	@echo "Created $(BUILD_DMG) successfully!"
+
+zip: app
+	@echo "Packaging $(ZIP_NAME)..."
+	@rm -f $(BUILD_ZIP)
+	@ditto -c -k --sequesterRsrc --keepParent $(BUILD_APP) $(BUILD_ZIP)
+	@echo "Created $(BUILD_ZIP) successfully!"
 
 install: app
 	@echo "Installing Twinly.app to /Applications..."
