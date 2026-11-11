@@ -73,7 +73,7 @@ Each generated shortcut at `~/Applications/Twinly/<App Name> (<Profile>).app` co
 ## Installation & First Launch
 
 ### Option 1: Download Pre-built DMG
-1. Download `Twinly.dmg` from the [Releases](https://github.com/twinly/twinly/releases) page.
+1. Download `Twinly.dmg` from the [Releases](https://github.com/onlymasumrana/Twinly/releases) page.
 2. Open the DMG and drag **Twinly** to your `/Applications` folder.
 3. **First-time Gatekeeper Bypass:** Because Twinly is free open-source software distributed outside the Mac App Store:
    - **Right-click** (or Control-click) `Twinly.app` in `/Applications`
@@ -83,7 +83,7 @@ Each generated shortcut at `~/Applications/Twinly/<App Name> (<Profile>).app` co
 
 ### Option 2: Build from Source
 ```bash
-git clone https://github.com/twinly/twinly.git
+git clone https://github.com/onlymasumrana/Twinly.git
 cd twinly
 
 # Build release binaries
