@@ -2,6 +2,8 @@
 
 > Run multiple separate instances of the same macOS app side-by-side with isolated data, logins, and persistent shortcuts. Free, MIT-licensed, and open-source.
 
+![Twinly Banner](Resources/banner.png)
+
 ---
 
 ## Overview
