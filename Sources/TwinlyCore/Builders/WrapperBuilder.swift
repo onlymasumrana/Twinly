@@ -29,59 +29,40 @@ public final class WrapperBuilder {
     public func locateLauncherBinary() throws -> URL {
         let fileManager = FileManager.default
 
-        // 1. Check in Twinly.app bundle (Helpers or Resources)
-        if let bundle = Bundle.main.url(forResource: "TwinlyLauncher", withExtension: nil) {
-            return bundle
+        if let override = ProcessInfo.processInfo.environment["TWINLY_LAUNCHER_PATH"],
+           fileManager.fileExists(atPath: override) {
+            return URL(fileURLWithPath: override)
         }
+
         let mainBundle = Bundle.main.bundleURL
-        let candidateInHelpers = mainBundle.appendingPathComponent("Contents/Helpers/TwinlyLauncher")
-        if fileManager.fileExists(atPath: candidateInHelpers.path) {
-            return candidateInHelpers
-        }
-        let candidateInResources = mainBundle.appendingPathComponent("Contents/Resources/TwinlyLauncher")
-        if fileManager.fileExists(atPath: candidateInResources.path) {
-            return candidateInResources
+        for rel in ["Contents/Helpers/TwinlyLauncher", "Contents/Resources/TwinlyLauncher"] {
+            let candidate = mainBundle.appendingPathComponent(rel)
+            if fileManager.fileExists(atPath: candidate.path) { return candidate }
         }
 
-        // 2. Check next to running executable
-        let currentExec = URL(fileURLWithPath: CommandLine.arguments[0])
-        let sibling = currentExec.deletingLastPathComponent().appendingPathComponent("TwinlyLauncher")
-        if fileManager.fileExists(atPath: sibling.path) {
-            return sibling
+        var execDirs: [URL] = []
+        if let exec = Bundle.main.executableURL { execDirs.append(exec.deletingLastPathComponent()) }
+        execDirs.append(URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent())
+        for dir in execDirs {
+            let sibling = dir.appendingPathComponent("TwinlyLauncher")
+            if fileManager.fileExists(atPath: sibling.path) { return sibling }
         }
 
-        // 3. Check standard build directories relative to current directory and home
-        let searchPaths = [
-            ".build/debug/TwinlyLauncher",
-            ".build/release/TwinlyLauncher",
-            "build/TwinlyLauncher",
-            "/usr/local/bin/TwinlyLauncher"
-        ]
+        throw WrapperBuilderError.launcherBinaryNotFound("Twinly's helper is missing. Reinstall Twinly.")
+    }
 
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        for rel in searchPaths {
-            let candidate = cwd.appendingPathComponent(rel)
-            if fileManager.fileExists(atPath: candidate.path) {
-                return candidate
-            }
-        }
+    private func readProfileId(ofBundleAt url: URL) -> String? {
+        let plistURL = url.appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plistURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return nil }
+        return plist["TwinlyProfileId"] as? String
+    }
 
-        // 4. Check scratch/Twinly/.build
-        let scratchCandidate = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/antigravity/scratch/Twinly/.build/debug/TwinlyLauncher")
-        if fileManager.fileExists(atPath: scratchCandidate.path) {
-            return scratchCandidate
-        }
-
-        let scratchReleaseCandidate = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/antigravity/scratch/Twinly/.build/release/TwinlyLauncher")
-        if fileManager.fileExists(atPath: scratchReleaseCandidate.path) {
-            return scratchReleaseCandidate
-        }
-
-        throw WrapperBuilderError.launcherBinaryNotFound(
-            "TwinlyLauncher binary could not be found. Please ensure TwinlyLauncher is built."
-        )
+    /// File name used for a shortcut (without `.app`).
+    public func shortcutName(appName: String, profileName: String) -> String {
+        "\(appName) (\(profileName))"
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
     }
 
     public func buildWrapper(
@@ -92,33 +73,36 @@ public final class WrapperBuilder {
         customArgs: [String] = [],
         customEnv: [String: String] = [:],
         customTargetDir: URL? = nil,
-        customProfilesDataDir: URL? = nil
+        customProfilesDataDir: URL? = nil,
+        existing: Profile? = nil
     ) throws -> Profile {
         guard analysis.strategy != .sandboxedUnsupported else {
             throw WrapperBuilderError.unsupportedApp(analysis.warning ?? "Sandboxed apps cannot be isolated.")
         }
 
-        let profileId = UUID()
+        let profileId = existing?.id ?? UUID()
         let fileManager = FileManager.default
 
-        // Output applications folder
         let appsDir = customTargetDir ?? Self.defaultApplicationsDir
         try fileManager.createDirectory(at: appsDir, withIntermediateDirectories: true)
 
-        // Wrapper .app path
-        let safeAppName = analysis.appName.replacingOccurrences(of: "/", with: "-")
-        let safeProfileName = profileName.replacingOccurrences(of: "/", with: "-")
-        let wrapperName = "\(safeAppName) (\(safeProfileName)).app"
+        let wrapperName = "\(shortcutName(appName: analysis.appName, profileName: profileName)).app"
         let wrapperURL = appsDir.appendingPathComponent(wrapperName)
 
-        // If exists, remove old wrapper
         if fileManager.fileExists(atPath: wrapperURL.path) {
-            try fileManager.removeItem(at: wrapperURL)
+            let existingId = readProfileId(ofBundleAt: wrapperURL)
+            if existingId != profileId.uuidString {
+                throw WrapperBuilderError.nameConflict("Another profile already uses the name “\(shortcutName(appName: analysis.appName, profileName: profileName))”.")
+            }
         }
 
-        // Profile data directory
-        let baseProfilesDir = customProfilesDataDir ?? Self.defaultProfilesDataDir
-        let profileDataDir = baseProfilesDir.appendingPathComponent(profileId.uuidString)
+        let profileDataDir: URL
+        if let existing = existing {
+            profileDataDir = URL(fileURLWithPath: existing.profileDirectory)
+        } else {
+            let baseProfilesDir = customProfilesDataDir ?? Self.defaultProfilesDataDir
+            profileDataDir = baseProfilesDir.appendingPathComponent(profileId.uuidString)
+        }
         try fileManager.createDirectory(at: profileDataDir, withIntermediateDirectories: true)
 
         if analysis.strategy == .genericNonSandboxed {
@@ -128,27 +112,26 @@ public final class WrapperBuilder {
             try fileManager.createDirectory(at: homeURL.appendingPathComponent("Library/Caches"), withIntermediateDirectories: true)
         }
 
-        // Build wrapper bundle structure
-        let contentsURL = wrapperURL.appendingPathComponent("Contents")
+        // Build into a temp bundle so a failure never destroys a working shortcut.
+        let tmpURL = appsDir.appendingPathComponent(".twinly-tmp-\(UUID().uuidString).app")
+        defer { try? fileManager.removeItem(at: tmpURL) }
+
+        let contentsURL = tmpURL.appendingPathComponent("Contents")
         let macosURL = contentsURL.appendingPathComponent("MacOS")
         let resourcesURL = contentsURL.appendingPathComponent("Resources")
 
         try fileManager.createDirectory(at: macosURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
 
-        // Copy launcher binary
         let launcherSource = try locateLauncherBinary()
         let launcherTarget = macosURL.appendingPathComponent("launcher")
         try fileManager.copyItem(at: launcherSource, to: launcherTarget)
 
-        // Set executable permissions
         var perms = try fileManager.attributesOfItem(atPath: launcherTarget.path)
         perms[.posixPermissions] = 0o755
         try fileManager.setAttributes(perms, ofItemAtPath: launcherTarget.path)
 
-        // Generate Info.plist
-        let profileSlug = sanitizeSlug(profileName)
-        let bundleId = "io.twinly.\(sanitizeBundleId(analysis.bundleIdentifier)).\(profileSlug)"
+        let bundleId = "io.twinly.\(sanitizeBundleId(analysis.bundleIdentifier)).\(profileId.uuidString.prefix(8).lowercased())"
 
         let infoPlist: [String: Any] = [
             "CFBundleDevelopmentRegion": "en",
@@ -171,7 +154,6 @@ public final class WrapperBuilder {
         let plistData = try PropertyListSerialization.data(fromPropertyList: infoPlist, format: .xml, options: 0)
         try plistData.write(to: contentsURL.appendingPathComponent("Info.plist"))
 
-        // Generate twinly.json
         let config = LauncherConfig(
             version: 1,
             profileId: profileId,
@@ -189,7 +171,6 @@ public final class WrapperBuilder {
         let configData = try encoder.encode(config)
         try configData.write(to: resourcesURL.appendingPathComponent("twinly.json"))
 
-        // Generate badged icon
         let baseImage: NSImage
         if let iconURL = analysis.iconURL, let img = NSImage(contentsOf: iconURL) {
             baseImage = img
@@ -214,10 +195,21 @@ public final class WrapperBuilder {
             }
         }
 
-        // Ad-hoc sign wrapper
-        signWrapperAdHoc(wrapperURL: wrapperURL)
+        signWrapperAdHoc(wrapperURL: tmpURL)
 
-        // Register with LaunchServices
+        // Move into place.
+        if fileManager.fileExists(atPath: wrapperURL.path) {
+            try fileManager.removeItem(at: wrapperURL)
+        }
+        try fileManager.moveItem(at: tmpURL, to: wrapperURL)
+
+        // Remove the old bundle if the shortcut was renamed.
+        if let existing = existing, existing.wrapperAppPath != wrapperURL.path,
+           fileManager.fileExists(atPath: existing.wrapperAppPath),
+           readProfileId(ofBundleAt: URL(fileURLWithPath: existing.wrapperAppPath)) == profileId.uuidString {
+            try? fileManager.removeItem(atPath: existing.wrapperAppPath)
+        }
+
         registerWithLaunchServices(wrapperURL: wrapperURL)
 
         return Profile(
@@ -233,8 +225,8 @@ public final class WrapperBuilder {
             wrapperAppPath: wrapperURL.path,
             customArgs: customArgs,
             customEnv: customEnv,
-            createdAt: Date(),
-            lastLaunchedAt: nil
+            createdAt: existing?.createdAt ?? Date(),
+            lastLaunchedAt: existing?.lastLaunchedAt
         )
     }
 
@@ -242,6 +234,8 @@ public final class WrapperBuilder {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
         process.arguments = ["--force", "--sign", "-", wrapperURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         try? process.run()
         process.waitUntilExit()
     }
@@ -253,6 +247,8 @@ public final class WrapperBuilder {
         let process = Process()
         process.executableURL = lsregisterURL
         process.arguments = ["-f", wrapperURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         try? process.run()
         process.waitUntilExit()
     }
@@ -262,12 +258,14 @@ public enum WrapperBuilderError: LocalizedError {
     case unsupportedApp(String)
     case launcherBinaryNotFound(String)
     case buildFailed(String)
+    case nameConflict(String)
 
     public var errorDescription: String? {
         switch self {
         case .unsupportedApp(let msg): return msg
         case .launcherBinaryNotFound(let msg): return msg
         case .buildFailed(let msg): return msg
+        case .nameConflict(let msg): return msg
         }
     }
 }

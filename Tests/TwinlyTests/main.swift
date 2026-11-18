@@ -184,9 +184,10 @@ func runAllTests() {
         assertTrue(FileManager.default.fileExists(atPath: cliProfile.profileDirectory), "Profile directory should exist")
 
         let script = try String(contentsOfFile: cliProfile.wrapperScriptPath, encoding: .utf8)
-        assertTrue(script.contains("export CLAUDE_CONFIG_DIR=\"\(cliProfile.profileDirectory)\""), "Script should export config dir")
-        assertTrue(script.contains("export MY_VAR=\"TEST_VAL\""), "Script should export custom env")
-        assertTrue(script.contains("exec \"/usr/bin/true\" \"$@\""), "Script should exec real binary")
+        assertTrue(script.contains("export CLAUDE_CONFIG_DIR='\(cliProfile.profileDirectory)'"), "Script should export config dir")
+        assertTrue(script.contains("export MY_VAR='TEST_VAL'"), "Script should export custom env")
+        assertTrue(script.contains("exec '/usr/bin/true' \"$@\""), "Script should exec real binary")
+        assertTrue(script.contains("# twinly-cli-profile"), "Script should carry the Twinly marker")
 
         let perms = try FileManager.default.attributesOfItem(atPath: cliProfile.wrapperScriptPath)
         let posix = (perms[.posixPermissions] as? NSNumber)?.intValue ?? 0
@@ -351,6 +352,209 @@ func runAllTests() {
     } catch {
         failedTests += 1
         print("❌ ProfileStore test failed: \(error)")
+    }
+
+    // 7. Edit keeps data
+    print("\n--- Test: Edit keeps data ---")
+    do {
+        let app = try createMockAppBundle(in: tempDir, name: "EditApp", isElectron: true)
+        let analysis = try AppInspector.shared.inspect(appURL: app)
+        let apps = tempDir.appendingPathComponent("EditApps")
+        let data = tempDir.appendingPathComponent("EditData")
+        let p1 = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "Work", badgeColorHex: "#EF4444", badgeText: "W", customTargetDir: apps, customProfilesDataDir: data)
+        let marker = URL(fileURLWithPath: p1.profileDirectory).appendingPathComponent("login.txt")
+        try "secret".write(to: marker, atomically: true, encoding: .utf8)
+        let p2 = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "Personal", badgeColorHex: "#3B82F6", badgeText: "P", customTargetDir: apps, customProfilesDataDir: data, existing: p1)
+        assertEqual(p2.id, p1.id)
+        assertEqual(p2.profileDirectory, p1.profileDirectory)
+        assertEqual(p2.createdAt, p1.createdAt)
+        assertTrue(FileManager.default.fileExists(atPath: marker.path), "Data file should survive edit")
+        assertTrue(FileManager.default.fileExists(atPath: p2.wrapperAppPath), "New app should exist")
+        assertFalse(FileManager.default.fileExists(atPath: p1.wrapperAppPath), "Old app should be removed")
+        let json = try Data(contentsOf: URL(fileURLWithPath: p2.wrapperAppPath).appendingPathComponent("Contents/Resources/twinly.json"))
+        let cfg = try JSONDecoder().decode(LauncherConfig.self, from: json)
+        assertEqual(cfg.profileDirectory, p1.profileDirectory)
+        assertEqual(cfg.profileId, p1.id)
+    } catch {
+        failedTests += 1
+        print("❌ Edit keeps data test failed: \(error)")
+    }
+
+    // 8. Repair keeps data
+    print("\n--- Test: Repair keeps data ---")
+    do {
+        let app = try createMockAppBundle(in: tempDir, name: "RepairApp", isElectron: false)
+        let analysis = try AppInspector.shared.inspect(appURL: app)
+        let apps = tempDir.appendingPathComponent("RepairApps")
+        let data = tempDir.appendingPathComponent("RepairData")
+        let p = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "Work", badgeColorHex: "#EF4444", badgeText: "W", customTargetDir: apps, customProfilesDataDir: data)
+        let store = ProfileStore(baseStorageDir: tempDir.appendingPathComponent("RepairStore"))
+        store.addProfile(p)
+        let result = store.rebuildAllWrappers(targetDir: apps, dataDir: data)
+        assertEqual(result.repaired.count, 1, "failed: \(result.failed)")
+        assertEqual(result.failed.count, 0)
+        assertEqual(store.profiles.first?.profileDirectory, p.profileDirectory)
+        assertEqual(store.profiles.first?.id, p.id)
+        assertEqual(store.profiles.first?.createdAt, p.createdAt)
+    } catch {
+        failedTests += 1
+        print("❌ Repair keeps data test failed: \(error)")
+    }
+
+    // 9. Name conflict
+    print("\n--- Test: Name conflict ---")
+    do {
+        let app = try createMockAppBundle(in: tempDir, name: "ConflictApp", isElectron: true)
+        let analysis = try AppInspector.shared.inspect(appURL: app)
+        let apps = tempDir.appendingPathComponent("ConflictApps")
+        let data = tempDir.appendingPathComponent("ConflictData")
+        _ = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "Work", badgeColorHex: "#EF4444", badgeText: "W", customTargetDir: apps, customProfilesDataDir: data)
+        var threw = false
+        do {
+            _ = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "Work", badgeColorHex: "#EF4444", badgeText: "W", customTargetDir: apps, customProfilesDataDir: data)
+        } catch WrapperBuilderError.nameConflict {
+            threw = true
+        }
+        assertTrue(threw, "Second profile with same name should throw nameConflict")
+        // "a/b" and "a:b" collapse to the same file name
+        _ = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "a/b", badgeColorHex: "#EF4444", badgeText: "W", customTargetDir: apps, customProfilesDataDir: data)
+        var threw2 = false
+        do {
+            _ = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "a:b", badgeColorHex: "#EF4444", badgeText: "W", customTargetDir: apps, customProfilesDataDir: data)
+        } catch WrapperBuilderError.nameConflict {
+            threw2 = true
+        }
+        assertTrue(threw2, "Names that sanitize identically should conflict")
+    } catch {
+        failedTests += 1
+        print("❌ Name conflict test failed: \(error)")
+    }
+
+    // 10. Bundle id
+    print("\n--- Test: Bundle id ---")
+    do {
+        let app = try createMockAppBundle(in: tempDir, name: "EmojiApp", isElectron: true)
+        let analysis = try AppInspector.shared.inspect(appURL: app)
+        let p = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "🔥", badgeColorHex: "#EF4444", badgeText: "🔥", customTargetDir: tempDir.appendingPathComponent("EmojiApps"), customProfilesDataDir: tempDir.appendingPathComponent("EmojiData"))
+        let plistData = try Data(contentsOf: URL(fileURLWithPath: p.wrapperAppPath).appendingPathComponent("Contents/Info.plist"))
+        let plist = try PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any]
+        let bid = plist?["CFBundleIdentifier"] as? String ?? ""
+        assertFalse(bid.isEmpty || bid.hasSuffix("."), "Bundle id should not end in a dot: \(bid)")
+    } catch {
+        failedTests += 1
+        print("❌ Bundle id test failed: \(error)")
+    }
+
+    // 11. Escaping
+    print("\n--- Test: CLI script escaping ---")
+    do {
+        let binDir = tempDir.appendingPathComponent("esc_bin")
+        let value = "a \"b\" $HOME `x` 'c'"
+        let p = try CLIWrapperBuilder.shared.buildCLIWrapper(
+            name: "Esc", commandName: "esc-test", preset: .custom, configEnvVar: "CONFIG_DIR",
+            realBinaryPath: "/usr/bin/env", customEnv: ["MY_VAR": value],
+            customBinDir: binDir, customCLIProfilesDir: tempDir.appendingPathComponent("esc_data")
+        )
+        let proc = Process()
+        let pipe = Pipe()
+        proc.executableURL = URL(fileURLWithPath: p.wrapperScriptPath)
+        proc.standardOutput = pipe
+        try proc.run()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        proc.waitUntilExit()
+        assertTrue(out.contains("MY_VAR=\(value)"), "Escaped value should round-trip literally")
+    } catch {
+        failedTests += 1
+        print("❌ Escaping test failed: \(error)")
+    }
+
+    // 12. Validation
+    print("\n--- Test: CLI validation ---")
+    do {
+        let binDir = tempDir.appendingPathComponent("val_bin")
+        let dataDir = tempDir.appendingPathComponent("val_data")
+        func throwsFor(command: String, env: [String: String] = [:], envVar: String = "CONFIG_DIR") -> Bool {
+            do {
+                _ = try CLIWrapperBuilder.shared.buildCLIWrapper(name: "V", commandName: command, preset: .custom, configEnvVar: envVar, realBinaryPath: "/usr/bin/true", customEnv: env, customBinDir: binDir, customCLIProfilesDir: dataDir)
+                return false
+            } catch { return true }
+        }
+        assertTrue(throwsFor(command: "a/b"), "slash")
+        assertTrue(throwsFor(command: "-x"), "leading dash")
+        assertTrue(throwsFor(command: ""), "empty")
+        assertTrue(throwsFor(command: "ok", env: ["1BAD": "x"]), "bad env key")
+        assertTrue(throwsFor(command: "ok", envVar: "1BAD"), "bad config var")
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try "#!/bin/sh\necho real\n".write(to: binDir.appendingPathComponent("claude"), atomically: true, encoding: .utf8)
+        assertTrue(throwsFor(command: "claude"), "must not clobber a non-Twinly file")
+        let content = try String(contentsOf: binDir.appendingPathComponent("claude"), encoding: .utf8)
+        assertEqual(content, "#!/bin/sh\necho real\n", "non-Twinly file untouched")
+        assertFalse(throwsFor(command: "claude-ok"), "valid command should work")
+    } catch {
+        failedTests += 1
+        print("❌ Validation test failed: \(error)")
+    }
+
+    // 13. Tokenizer
+    print("\n--- Test: Argument tokenizer ---")
+    let toks = InputParsing.tokenizeArguments("--a \"b c\" 'd e' f\\ g")
+    assertEqual(toks, ["--a", "b c", "d e", "f g"])
+    assertEqual(InputParsing.tokenizeArguments(InputParsing.formatArguments(toks)), toks, "round trip")
+    assertEqual(InputParsing.tokenizeArguments("  "), [])
+
+    // 14. Env parser
+    print("\n--- Test: Env parser ---")
+    if case .success(let env) = InputParsing.parseEnvironment("A=1\n\n# c\nB=x=y") {
+        assertEqual(env, ["A": "1", "B": "x=y"])
+    } else {
+        failedTests += 1
+        print("❌ Env parser should succeed")
+    }
+    if case .failure(let err) = InputParsing.parseEnvironment("NOEQ") {
+        assertEqual(err.line, 1)
+    } else {
+        failedTests += 1
+        print("❌ Env parser should fail for NOEQ")
+    }
+    if case .failure(let err) = InputParsing.parseEnvironment("A=1\n1ABC=2") {
+        assertEqual(err.line, 2)
+    } else {
+        failedTests += 1
+        print("❌ Env parser should fail for invalid name")
+    }
+
+    // 15. Corrupt store
+    print("\n--- Test: Corrupt store ---")
+    do {
+        let dir = tempDir.appendingPathComponent("corrupt_store")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "{".write(to: dir.appendingPathComponent("profiles.json"), atomically: true, encoding: .utf8)
+        let store = ProfileStore(baseStorageDir: dir)
+        assertNotNil(store.loadError, "loadError should be set")
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        assertTrue(names.contains { $0.hasPrefix("profiles.json.broken-") }, "backup should exist")
+        assertEqual(try String(contentsOf: dir.appendingPathComponent("profiles.json"), encoding: .utf8), "{")
+        assertEqual(store.profiles.count, 0)
+    } catch {
+        failedTests += 1
+        print("❌ Corrupt store test failed: \(error)")
+    }
+
+    // 16. Running detector
+    print("\n--- Test: Running detector ---")
+    do {
+        let dir = tempDir.appendingPathComponent("running")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        assertFalse(ProfileStatus.isRunning(profileDirectory: dir.path), "no lock")
+        let lock = dir.appendingPathComponent("SingletonLock")
+        try FileManager.default.createSymbolicLink(atPath: lock.path, withDestinationPath: "host-\(getpid())")
+        assertTrue(ProfileStatus.isRunning(profileDirectory: dir.path), "live pid")
+        try FileManager.default.removeItem(at: lock)
+        try FileManager.default.createSymbolicLink(atPath: lock.path, withDestinationPath: "host-999999")
+        assertFalse(ProfileStatus.isRunning(profileDirectory: dir.path), "dead pid")
+    } catch {
+        failedTests += 1
+        print("❌ Running detector test failed: \(error)")
     }
 
     // Summary

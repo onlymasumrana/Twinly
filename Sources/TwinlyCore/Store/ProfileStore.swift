@@ -1,11 +1,35 @@
 import Foundation
 import AppKit
 
+public struct RepairResult {
+    public var repaired: [String]
+    public var failed: [String]
+    public init(repaired: [String] = [], failed: [String] = []) {
+        self.repaired = repaired
+        self.failed = failed
+    }
+}
+
+public enum StoreError: LocalizedError {
+    case notFound
+    case shortcutMissing(String)
+    case terminalLaunchFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notFound: return "That profile no longer exists."
+        case .shortcutMissing: return "This shortcut is missing. Choose Repair All Shortcuts in Settings."
+        case .terminalLaunchFailed(let m): return m
+        }
+    }
+}
+
 public final class ProfileStore: ObservableObject {
     public static let shared = ProfileStore()
 
     @Published public var profiles: [Profile] = []
     @Published public var cliProfiles: [CLIProfile] = []
+    @Published public var loadError: String?
 
     public let baseStorageDir: URL
     private let profilesFileURL: URL
@@ -22,39 +46,43 @@ public final class ProfileStore: ObservableObject {
         load()
     }
 
+    // MARK: - Persistence
+
+    private func loadFile<T: Decodable>(_ url: URL, as type: [T].Type) -> [T] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let backup = url.deletingLastPathComponent()
+                .appendingPathComponent("\(url.lastPathComponent).broken-\(stamp)")
+            try? FileManager.default.copyItem(at: url, to: backup)
+            loadError = "Twinly couldn't read your profiles. A backup was saved to \(backup.path)."
+            return []
+        }
+    }
+
     public func load() {
-        let decoder = JSONDecoder()
-
-        if let data = try? Data(contentsOf: profilesFileURL),
-           let decoded = try? decoder.decode([Profile].self, from: data) {
-            self.profiles = decoded
-        } else {
-            self.profiles = []
-        }
-
-        if let cliData = try? Data(contentsOf: cliProfilesFileURL),
-           let decodedCLI = try? decoder.decode([CLIProfile].self, from: cliData) {
-            self.cliProfiles = decodedCLI
-        } else {
-            self.cliProfiles = []
-        }
+        loadError = nil
+        profiles = loadFile(profilesFileURL, as: [Profile].self)
+        cliProfiles = loadFile(cliProfilesFileURL, as: [CLIProfile].self)
     }
 
-    public func saveProfiles() {
+    private func write<T: Encodable>(_ value: [T], to url: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(profiles) {
-            try? data.write(to: profilesFileURL, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try encoder.encode(value)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            loadError = "Twinly couldn't save your profiles: \(error.localizedDescription)"
         }
     }
 
-    public func saveCLIProfiles() {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(cliProfiles) {
-            try? data.write(to: cliProfilesFileURL, options: .atomic)
-        }
-    }
+    public func saveProfiles() { write(profiles, to: profilesFileURL) }
+    public func saveCLIProfiles() { write(cliProfiles, to: cliProfilesFileURL) }
 
     // MARK: - GUI Profiles Management
 
@@ -71,18 +99,56 @@ public final class ProfileStore: ObservableObject {
         }
     }
 
+    /// Rebuilds the shortcut for an edited profile, keeping its id and data. Blocking; call off the main thread.
+    /// The store itself is updated on the main thread.
+    public func updateAndRebuild(_ profile: Profile) throws -> Profile {
+        let analysis = try AppInspector.shared.inspect(appURL: URL(fileURLWithPath: profile.originalAppPath))
+        let rebuilt = try WrapperBuilder.shared.buildWrapper(
+            analysis: analysis,
+            profileName: profile.name,
+            badgeColorHex: profile.badgeColorHex,
+            badgeText: profile.badgeText,
+            customArgs: profile.customArgs,
+            customEnv: profile.customEnv,
+            existing: profile
+        )
+        onMain { self.updateProfile(rebuilt) }
+        return rebuilt
+    }
+
+    public func duplicateProfile(_ profile: Profile) throws -> Profile {
+        let analysis = try AppInspector.shared.inspect(appURL: URL(fileURLWithPath: profile.originalAppPath))
+        var name = "\(profile.name) Copy"
+        var n = 2
+        let current: [Profile] = Thread.isMainThread ? profiles : DispatchQueue.main.sync { profiles }
+        let taken = Set(current.filter { $0.originalAppPath == profile.originalAppPath }.map { $0.name.lowercased() })
+        while taken.contains(name.lowercased()) { name = "\(profile.name) Copy \(n)"; n += 1 }
+
+        let text: String
+        if let num = Int(profile.badgeText) { text = String(min(num + 1, 99)) } else { text = profile.badgeText }
+
+        let built = try WrapperBuilder.shared.buildWrapper(
+            analysis: analysis,
+            profileName: name,
+            badgeColorHex: profile.badgeColorHex,
+            badgeText: text,
+            customArgs: profile.customArgs,
+            customEnv: profile.customEnv
+        )
+        onMain { self.addProfile(built) }
+        return built
+    }
+
     public func deleteProfile(id: UUID, deleteData: Bool) throws {
-        guard let profile = profiles.first(where: { $0.id == id }) else { return }
+        guard let profile = profiles.first(where: { $0.id == id }) else { throw StoreError.notFound }
 
         let fileManager = FileManager.default
 
-        // 1. Delete wrapper .app bundle
         let wrapperURL = URL(fileURLWithPath: profile.wrapperAppPath)
         if fileManager.fileExists(atPath: wrapperURL.path) {
             try fileManager.removeItem(at: wrapperURL)
         }
 
-        // 2. Conditionally delete profile data directory
         if deleteData {
             let dataURL = URL(fileURLWithPath: profile.profileDirectory)
             if fileManager.fileExists(atPath: dataURL.path) {
@@ -94,10 +160,10 @@ public final class ProfileStore: ObservableObject {
         saveProfiles()
     }
 
-    public func launchProfile(_ profile: Profile) {
+    public func launchProfile(_ profile: Profile, completion: @escaping (Error?) -> Void = { _ in }) {
         let wrapperURL = URL(fileURLWithPath: profile.wrapperAppPath)
         guard FileManager.default.fileExists(atPath: wrapperURL.path) else {
-            NSLog("Wrapper does not exist at: %@", profile.wrapperAppPath)
+            completion(StoreError.shortcutMissing(profile.wrapperAppPath))
             return
         }
 
@@ -105,44 +171,58 @@ public final class ProfileStore: ObservableObject {
         config.activates = true
         config.createsNewApplicationInstance = true
 
-        NSWorkspace.shared.openApplication(at: wrapperURL, configuration: config) { [weak self] _, _ in
+        NSWorkspace.shared.openApplication(at: wrapperURL, configuration: config) { [weak self] _, error in
             DispatchQueue.main.async {
-                if let idx = self?.profiles.firstIndex(where: { $0.id == profile.id }) {
+                if error == nil, let idx = self?.profiles.firstIndex(where: { $0.id == profile.id }) {
                     self?.profiles[idx].lastLaunchedAt = Date()
                     self?.saveProfiles()
                 }
+                completion(error)
             }
         }
     }
 
-    public func rebuildAllWrappers() -> (rebuilt: [String], failed: [String]) {
-        var rebuilt: [String] = []
-        var failed: [String] = []
+    /// Rebuilds every shortcut, keeping each profile's id and data. Blocking; call off the main thread.
+    public func rebuildAllWrappers(targetDir: URL? = nil, dataDir: URL? = nil) -> RepairResult {
+        var result = RepairResult()
+        var updated: [Profile] = []
+        let snapshot: [Profile] = Thread.isMainThread ? profiles : DispatchQueue.main.sync { profiles }
 
-        for profile in profiles {
+        for profile in snapshot {
+            let label = "\(profile.appName) (\(profile.name))"
             let origURL = URL(fileURLWithPath: profile.originalAppPath)
             guard FileManager.default.fileExists(atPath: origURL.path) else {
-                failed.append("\(profile.appName) (\(profile.name)): Original app not found at \(profile.originalAppPath)")
+                result.failed.append("\(label): app not found")
                 continue
             }
-
             do {
                 let analysis = try AppInspector.shared.inspect(appURL: origURL)
-                _ = try WrapperBuilder.shared.buildWrapper(
+                let rebuilt = try WrapperBuilder.shared.buildWrapper(
                     analysis: analysis,
                     profileName: profile.name,
                     badgeColorHex: profile.badgeColorHex,
                     badgeText: profile.badgeText,
                     customArgs: profile.customArgs,
-                    customEnv: profile.customEnv
+                    customEnv: profile.customEnv,
+                    customTargetDir: targetDir,
+                    customProfilesDataDir: dataDir,
+                    existing: profile
                 )
-                rebuilt.append("\(profile.appName) (\(profile.name))")
+                updated.append(rebuilt)
+                result.repaired.append(label)
             } catch {
-                failed.append("\(profile.appName) (\(profile.name)): \(error.localizedDescription)")
+                result.failed.append("\(label): \(error.localizedDescription)")
             }
         }
 
-        return (rebuilt, failed)
+        let apply = {
+            for p in updated {
+                if let idx = self.profiles.firstIndex(where: { $0.id == p.id }) { self.profiles[idx] = p }
+            }
+            self.saveProfiles()
+        }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.sync { apply() } }
+        return result
     }
 
     // MARK: - CLI Profiles Management
@@ -153,22 +233,31 @@ public final class ProfileStore: ObservableObject {
         saveCLIProfiles()
     }
 
+    public func updateCLIProfile(_ profile: CLIProfile) {
+        if let idx = cliProfiles.firstIndex(where: { $0.id == profile.id }) {
+            cliProfiles[idx] = profile
+            saveCLIProfiles()
+        } else {
+            addCLIProfile(profile)
+        }
+    }
+
     public func deleteCLIProfile(id: UUID, deleteData: Bool) throws {
-        guard let profile = cliProfiles.first(where: { $0.id == id }) else { return }
+        guard let profile = cliProfiles.first(where: { $0.id == id }) else { throw StoreError.notFound }
 
         let fileManager = FileManager.default
 
-        // 1. Delete wrapper script
-        let scriptURL = URL(fileURLWithPath: profile.wrapperScriptPath)
-        if fileManager.fileExists(atPath: scriptURL.path) {
-            try fileManager.removeItem(at: scriptURL)
+        let sharedByOthers = cliProfiles.contains { $0.id != id && $0.wrapperScriptPath == profile.wrapperScriptPath }
+        if !sharedByOthers,
+           fileManager.fileExists(atPath: profile.wrapperScriptPath),
+           ShellEnvironment.hasTwinlyMarker(path: profile.wrapperScriptPath) {
+            try fileManager.removeItem(atPath: profile.wrapperScriptPath)
         }
 
-        // 2. Conditionally delete profile data
         if deleteData {
-            let dataURL = URL(fileURLWithPath: profile.profileDirectory)
-            if fileManager.fileExists(atPath: dataURL.path) {
-                try fileManager.removeItem(at: dataURL)
+            let sharedDir = cliProfiles.contains { $0.id != id && $0.profileDirectory == profile.profileDirectory }
+            if !sharedDir, fileManager.fileExists(atPath: profile.profileDirectory) {
+                try fileManager.removeItem(atPath: profile.profileDirectory)
             }
         }
 
@@ -176,29 +265,41 @@ public final class ProfileStore: ObservableObject {
         saveCLIProfiles()
     }
 
-    public func launchCLIInTerminal(_ profile: CLIProfile) {
-        let command = profile.wrapperScriptPath
-        let script = "tell application \"Terminal\" to do script \"\(command)\""
-        if let appleScript = NSAppleScript(source: script) {
-            var errorInfo: NSDictionary?
-            appleScript.executeAndReturnError(&errorInfo)
-        }
+    public func launchCLIInTerminal(_ profile: CLIProfile, completion: @escaping (Error?) -> Void = { _ in }) {
+        do {
+            let dir = baseStorageDir.appendingPathComponent("TerminalLaunchers", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let file = dir.appendingPathComponent("\(profile.commandName).command")
+            let body = "#!/bin/sh\nexec \(ShellEnvironment.shellQuote(profile.wrapperScriptPath))\n"
+            try body.write(to: file, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
 
-        if let idx = cliProfiles.firstIndex(where: { $0.id == profile.id }) {
-            cliProfiles[idx].lastLaunchedAt = Date()
-            saveCLIProfiles()
+            let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+            NSWorkspace.shared.open([file], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+                DispatchQueue.main.async {
+                    if error == nil, let idx = self?.cliProfiles.firstIndex(where: { $0.id == profile.id }) {
+                        self?.cliProfiles[idx].lastLaunchedAt = Date()
+                        self?.saveCLIProfiles()
+                    }
+                    completion(error)
+                }
+            }
+        } catch {
+            completion(error)
         }
     }
 
     // MARK: - Utilities
 
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
+    }
+
     public func revealInFinder(path: String) {
-        let url = URL(fileURLWithPath: path)
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
     public func openFolder(path: String) {
-        let url = URL(fileURLWithPath: path)
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 }

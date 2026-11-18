@@ -23,7 +23,7 @@ build-universal:
 	@echo "Created universal binaries successfully!"
 
 test:
-	swift run TwinlyTestsRunner
+	swift build --product TwinlyLauncher && swift run TwinlyTestsRunner
 
 app: build-universal
 	@echo "Creating $(APP_NAME)..."

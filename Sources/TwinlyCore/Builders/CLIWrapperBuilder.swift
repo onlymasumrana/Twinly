@@ -15,52 +15,41 @@ public final class CLIWrapperBuilder {
 
     public init() {}
 
+    private func isExecutableFile(_ path: String) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && !isDir.boolValue
+            && FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    /// Finds the real binary for `command`, skipping scripts made by Twinly. Blocking (may run the login shell).
     public func findRealBinary(for command: String) -> String? {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = [command]
-        process.standardOutput = pipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
-                    return path
-                }
-            }
-        } catch {
-            return nil
-        }
-
-        // Fallback common paths
-        let commonPaths = [
-            "/usr/local/bin/\(command)",
-            "/opt/homebrew/bin/\(command)",
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/\(command)").path,
-            "/usr/bin/\(command)"
+        guard !command.isEmpty else { return nil }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        var dirs = ShellEnvironment.searchPathEntries()
+        dirs += [
+            "/usr/local/bin", "/opt/homebrew/bin", "\(home)/.local/bin", "/usr/bin",
+            "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.volta/bin", "\(home)/.claude/local"
         ]
-
-        for p in commonPaths {
-            if FileManager.default.fileExists(atPath: p) {
-                return p
-            }
+        var seen = Set<String>()
+        for dir in dirs where seen.insert(dir).inserted {
+            let expanded = dir.hasPrefix("~") ? home + dir.dropFirst() : dir
+            let candidate = (expanded as NSString).appendingPathComponent(command)
+            guard isExecutableFile(candidate) else { continue }
+            if ShellEnvironment.hasTwinlyMarker(path: candidate) { continue }
+            return candidate
         }
-
         return nil
     }
 
     public func isLocalBinInPath() -> Bool {
-        guard let pathEnv = ProcessInfo.processInfo.environment["PATH"] else { return false }
         let homeLocalBin = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path
+        let pathEnv = ShellEnvironment.loginShellPATH() ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
         let parts = pathEnv.split(separator: ":").map(String.init)
-        return parts.contains(homeLocalBin) || parts.contains("~/.local/bin")
+        return parts.contains(homeLocalBin) || parts.contains("~/.local/bin") || parts.contains("$HOME/.local/bin")
     }
 
     public func shellPathFixCommand() -> String {
-        return "echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.zshrc && source ~/.zshrc"
+        ShellEnvironment.pathFixCommand()
     }
 
     public func buildCLIWrapper(
@@ -71,53 +60,78 @@ public final class CLIWrapperBuilder {
         realBinaryPath: String,
         customEnv: [String: String] = [:],
         customBinDir: URL? = nil,
-        customCLIProfilesDir: URL? = nil
+        customCLIProfilesDir: URL? = nil,
+        existing: CLIProfile? = nil
     ) throws -> CLIProfile {
         let fileManager = FileManager.default
         let binDir = customBinDir ?? Self.defaultBinDir
         let profilesDir = customCLIProfilesDir ?? Self.defaultCLIProfilesDir
 
-        // Validate command name
         let cleanCommandName = commandName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanCommandName.isEmpty, cleanCommandName.rangeOfCharacter(from: CharacterSet.whitespaces) == nil else {
-            throw CLIWrapperError.invalidCommandName("Command name cannot contain spaces or be empty.")
+        guard ShellEnvironment.isValidCommandName(cleanCommandName) else {
+            throw CLIWrapperError.invalidCommandName("Use letters, numbers, dots, dashes or underscores.")
         }
-
-        // Create ~/.local/bin and profile data directory
-        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
-        let profileDir = profilesDir.appendingPathComponent(cleanCommandName)
-        try fileManager.createDirectory(at: profileDir, withIntermediateDirectories: true)
+        guard ShellEnvironment.isValidEnvName(configEnvVar) else {
+            throw CLIWrapperError.invalidEnvName("“\(configEnvVar)” isn't a valid variable name.")
+        }
+        for key in customEnv.keys where !ShellEnvironment.isValidEnvName(key) {
+            throw CLIWrapperError.invalidEnvName("“\(key)” isn't a valid variable name.")
+        }
 
         let wrapperScriptURL = binDir.appendingPathComponent(cleanCommandName)
 
-        // Generate shell script content
+        if fileManager.fileExists(atPath: wrapperScriptURL.path),
+           !ShellEnvironment.hasTwinlyMarker(path: wrapperScriptURL.path) {
+            throw CLIWrapperError.fileExists("~/.local/bin/\(cleanCommandName) already exists and wasn't made by Twinly.")
+        }
+
+        let resolvedBinary = URL(fileURLWithPath: realBinaryPath).resolvingSymlinksInPath().path
+        if resolvedBinary == wrapperScriptURL.resolvingSymlinksInPath().path
+            || (fileManager.fileExists(atPath: realBinaryPath) && ShellEnvironment.hasTwinlyMarker(path: realBinaryPath)) {
+            throw CLIWrapperError.binaryNotFound("The command can't run itself. Choose the real \(cleanCommandName) binary.")
+        }
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        let profileId = existing?.id ?? UUID()
+        let profileDir: URL
+        if let existing = existing {
+            profileDir = URL(fileURLWithPath: existing.profileDirectory)
+        } else {
+            profileDir = profilesDir.appendingPathComponent(cleanCommandName)
+        }
+        try fileManager.createDirectory(at: profileDir, withIntermediateDirectories: true)
+
         var scriptLines: [String] = [
             "#!/usr/bin/env bash",
-            "# Generated by Twinly for CLI profile: \(name)",
-            "# Automatically manages isolated configuration and data",
+            ShellEnvironment.cliMarker,
+            "# Generated by Twinly for command-line profile: \(name.replacingOccurrences(of: "\n", with: " "))",
             "set -e",
             "",
-            "export \(configEnvVar)=\"\(profileDir.path)\""
+            "export \(configEnvVar)=\(ShellEnvironment.shellQuote(profileDir.path))"
         ]
 
         for (k, v) in customEnv.sorted(by: { $0.key < $1.key }) {
-            scriptLines.append("export \(k)=\"\(v)\"")
+            scriptLines.append("export \(k)=\(ShellEnvironment.shellQuote(v))")
         }
 
         scriptLines.append("")
-        scriptLines.append("exec \"\(realBinaryPath)\" \"$@\"")
+        scriptLines.append("exec \(ShellEnvironment.shellQuote(realBinaryPath)) \"$@\"")
         scriptLines.append("")
 
-        let scriptContent = scriptLines.joined(separator: "\n")
-        try scriptContent.write(to: wrapperScriptURL, atomically: true, encoding: .utf8)
+        try scriptLines.joined(separator: "\n").write(to: wrapperScriptURL, atomically: true, encoding: .utf8)
 
-        // Make executable
         var perms = try fileManager.attributesOfItem(atPath: wrapperScriptURL.path)
         perms[.posixPermissions] = 0o755
         try fileManager.setAttributes(perms, ofItemAtPath: wrapperScriptURL.path)
 
+        // If the command was renamed, remove the old script (only if it's ours).
+        if let existing = existing, existing.wrapperScriptPath != wrapperScriptURL.path,
+           ShellEnvironment.hasTwinlyMarker(path: existing.wrapperScriptPath) {
+            try? fileManager.removeItem(atPath: existing.wrapperScriptPath)
+        }
+
         return CLIProfile(
-            id: UUID(),
+            id: profileId,
             name: name,
             commandName: cleanCommandName,
             preset: preset,
@@ -126,20 +140,22 @@ public final class CLIWrapperBuilder {
             realBinaryPath: realBinaryPath,
             wrapperScriptPath: wrapperScriptURL.path,
             customEnv: customEnv,
-            createdAt: Date(),
-            lastLaunchedAt: nil
+            createdAt: existing?.createdAt ?? Date(),
+            lastLaunchedAt: existing?.lastLaunchedAt
         )
     }
 }
 
 public enum CLIWrapperError: LocalizedError {
     case invalidCommandName(String)
+    case invalidEnvName(String)
     case binaryNotFound(String)
+    case fileExists(String)
 
     public var errorDescription: String? {
         switch self {
-        case .invalidCommandName(let msg): return msg
-        case .binaryNotFound(let msg): return msg
+        case .invalidCommandName(let msg), .invalidEnvName(let msg),
+             .binaryNotFound(let msg), .fileExists(let msg): return msg
         }
     }
 }

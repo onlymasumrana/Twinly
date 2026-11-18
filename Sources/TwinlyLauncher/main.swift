@@ -13,7 +13,22 @@ struct LauncherConfig: Codable {
     var environment: [String: String]
 }
 
+func openTwinly() {
+    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "io.twinly.Twinly") {
+        NSWorkspace.shared.open(url)
+        return
+    }
+    let candidates = [
+        URL(fileURLWithPath: "/Applications/Twinly.app"),
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Twinly.app")
+    ]
+    if let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+        NSWorkspace.shared.open(found)
+    }
+}
+
 func showAlert(title: String, message: String) {
+    NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     alert.messageText = title
     alert.informativeText = message
@@ -22,17 +37,7 @@ func showAlert(title: String, message: String) {
     alert.addButton(withTitle: "Open Twinly")
     let response = alert.runModal()
     if response == .alertSecondButtonReturn {
-        // Attempt to open Twinly if installed
-        let twinlyApp = URL(fileURLWithPath: "/Applications/Twinly.app")
-        if FileManager.default.fileExists(atPath: twinlyApp.path) {
-            NSWorkspace.shared.open(twinlyApp)
-        } else {
-            let userTwinlyApp = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Applications/Twinly.app")
-            if FileManager.default.fileExists(atPath: userTwinlyApp.path) {
-                NSWorkspace.shared.open(userTwinlyApp)
-            }
-        }
+        openTwinly()
     }
 }
 
@@ -61,8 +66,8 @@ func main() {
 
     guard let configURL = locateConfigFile() else {
         showAlert(
-            title: "Twinly Launcher Error",
-            message: "Missing twinly.json configuration file inside the application bundle."
+            title: "Can't Open This Profile",
+            message: "This shortcut is damaged. Open Twinly and choose Repair All Shortcuts."
         )
         exit(1)
     }
@@ -70,8 +75,8 @@ func main() {
     guard let data = try? Data(contentsOf: configURL),
           let config = try? JSONDecoder().decode(LauncherConfig.self, from: data) else {
         showAlert(
-            title: "Twinly Launcher Error",
-            message: "Unable to read or decode twinly.json configuration file."
+            title: "Can't Open This Profile",
+            message: "This shortcut is damaged. Open Twinly and choose Repair All Shortcuts."
         )
         exit(1)
     }
@@ -80,8 +85,8 @@ func main() {
     let originalAppURL = URL(fileURLWithPath: config.originalAppPath)
     guard FileManager.default.fileExists(atPath: originalAppURL.path) else {
         showAlert(
-            title: "Original Application Not Found",
-            message: "The original application '\(originalAppURL.lastPathComponent)' was moved or deleted from:\n\(config.originalAppPath)\n\nPlease reinstall the application or rebuild the profile in Twinly."
+            title: "“\(originalAppURL.deletingPathExtension().lastPathComponent)” Can't Be Found",
+            message: "It was moved or deleted from \(config.originalAppPath). Reinstall it, then open Twinly and choose Repair All Shortcuts."
         )
         exit(1)
     }
@@ -133,23 +138,32 @@ func main() {
     openConfig.createsNewApplicationInstance = true
     openConfig.activates = true
 
+    enum Outcome { case pending, ok, failed(Error) }
+    let lock = NSLock()
+    var outcome = Outcome.pending
     let semaphore = DispatchSemaphore(value: 0)
-    var workspaceLaunchSucceeded = false
+    let appName = originalAppURL.deletingPathExtension().lastPathComponent
 
-    NSWorkspace.shared.openApplication(at: originalAppURL, configuration: openConfig) { runningApp, error in
+    NSWorkspace.shared.openApplication(at: originalAppURL, configuration: openConfig) { _, error in
+        lock.lock()
         if let error = error {
             NSLog("NSWorkspace openApplication error: %@", error.localizedDescription)
-            workspaceLaunchSucceeded = false
+            outcome = .failed(error)
         } else {
-            workspaceLaunchSucceeded = true
+            outcome = .ok
         }
+        lock.unlock()
         semaphore.signal()
     }
 
-    _ = semaphore.wait(timeout: .now() + 2.5)
+    // Slow cold starts (Electron) can take a while. On timeout, assume it is still launching.
+    _ = semaphore.wait(timeout: .now() + 15)
 
-    // If NSWorkspace failed, fallback to direct binary execution
-    if !workspaceLaunchSucceeded {
+    lock.lock()
+    let finalOutcome = outcome
+    lock.unlock()
+
+    if case .failed = finalOutcome {
         let execURL = URL(fileURLWithPath: config.executablePath)
         if fileManager.fileExists(atPath: execURL.path) {
             let process = Process()
@@ -160,15 +174,15 @@ func main() {
                 try process.run()
             } catch {
                 showAlert(
-                    title: "Launch Failed",
-                    message: "Failed to launch application binary:\n\(error.localizedDescription)"
+                    title: "Couldn't Open “\(appName)”",
+                    message: error.localizedDescription
                 )
                 exit(1)
             }
         } else {
             showAlert(
-                title: "Launch Failed",
-                message: "Could not open application bundle or executable binary at \(config.executablePath)."
+                title: "Couldn't Open “\(appName)”",
+                message: "macOS couldn't start the app at \(config.originalAppPath)."
             )
             exit(1)
         }

@@ -8,22 +8,22 @@ public enum AppStrategy: String, Codable, CaseIterable {
     public var displayName: String {
         switch self {
         case .electronChromium:
-            return "Electron / Chromium"
+            return "Chromium-based"
         case .genericNonSandboxed:
-            return "Generic Non-Sandboxed"
+            return "Standard app"
         case .sandboxedUnsupported:
-            return "Sandboxed (Unsupported)"
+            return "Not supported"
         }
     }
 
     public var isolationSummary: String {
         switch self {
         case .electronChromium:
-            return "Launches with dedicated --user-data-dir for complete profile isolation."
+            return "Gets its own data folder, so logins stay separate."
         case .genericNonSandboxed:
-            return "Launches with isolated HOME directory containing redirected Library/Application Support and Preferences."
+            return "Gets its own Library folder for settings and data."
         case .sandboxedUnsupported:
-            return "Cannot isolate: sandboxed apps have App Sandbox containers locked to their App ID by macOS."
+            return "macOS locks this app's data to one copy."
         }
     }
 }
@@ -127,6 +127,15 @@ public enum CLIPreset: String, Codable, CaseIterable {
         case .codexCLI: return "Codex CLI (codex)"
         case .ghCLI: return "GitHub CLI (gh)"
         case .custom: return "Custom CLI Tool"
+        }
+    }
+
+    public var shortName: String {
+        switch self {
+        case .claudeCode: return "Claude Code"
+        case .codexCLI: return "Codex"
+        case .ghCLI: return "GitHub CLI"
+        case .custom: return "Other"
         }
     }
 

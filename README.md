@@ -10,7 +10,7 @@ macOS normally permits only a single running instance per application bundle, an
 
 **Twinly** solves this without modifying or resigning original app bundles. It creates native, persistent `.app` wrappers in `~/Applications/Twinly/` that launch clones with isolated data environments. Your shortcuts stay around after closing, appear in Spotlight and Launchpad, and retain separate accounts, cookies, and settings.
 
-Twinly also manages **CLI Profiles** for command-line tools like **Claude Code**, **Codex CLI**, and **GitHub CLI (`gh`)**.
+Twinly also manages **Command Line** profiles for command-line tools like **Claude Code**, **Codex CLI**, and **GitHub CLI (`gh`)**.
 
 ---
 
@@ -20,7 +20,7 @@ Twinly also manages **CLI Profiles** for command-line tools like **Claude Code**
 |---|---|---|:---:|
 | **Electron / Chromium**<br>*(Claude desktop, Slack, Discord, VS Code, Google Chrome, Brave, Edge)* | `Contents/Frameworks/Electron Framework.framework` or Chromium/Chrome Framework | Binary is launched with `--user-data-dir="<profileDir>"` (and `--profile-directory=Default` for browsers). Complete isolation of cookies, cache, storage, and sessions. | ✅ Yes |
 | **Generic Non-Sandboxed Apps**<br>*(Standard Cocoa/AppKit macOS apps)* | Non-Electron, and lacks `com.apple.security.app-sandbox` entitlement | Binary is launched with the `HOME` environment variable redirected to `<profileDir>/home`, with pre-seeded `Library/Application Support`, `Library/Preferences`, and `Library/Caches`. | ✅ Yes |
-| **CLI Tools**<br>*(Claude Code, Codex CLI, GitHub CLI, Custom)* | Selected via CLI profile tab | Generates an executable shell wrapper in `~/.local/bin/<alias>` configuring tool-specific environment variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GH_CONFIG_DIR`) before `exec`ing the real binary. | ✅ Yes |
+| **CLI Tools**<br>*(Claude Code, Codex CLI, GitHub CLI, Custom)* | Selected in the Command Line section | Generates an executable shell wrapper in `~/.local/bin/<alias>` configuring tool-specific environment variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GH_CONFIG_DIR`) before `exec`ing the real binary. | ✅ Yes |
 | **Sandboxed / App Store Apps**<br>*(Pages, Keynote, Mac App Store purchases)* | Has `com.apple.security.app-sandbox` entitlement | **Not Supported.** macOS kernel strictly locks sandbox data containers to the exact bundle ID and Team ID. Twinly detects and flags them with an explanatory warning. | ❌ Unsupported |
 
 ---
@@ -31,9 +31,11 @@ Twinly also manages **CLI Profiles** for command-line tools like **Claude Code**
 - **Spotlight & Launchpad Ready:** Automatically registered with macOS LaunchServices (`lsregister`) and ad-hoc signed.
 - **Custom Visual Badges:** Distinct colored badge (8+ palette colors or custom picker) and custom glyph/text ("2", "Work", emoji) drawn directly onto the original app's `.icns`.
 - **Zero App Modification:** Points to the original application by path. App updates to the original bundle continue to work automatically.
-- **Safe Deletion:** Deleting a profile removes the shortcut wrapper and prompts whether to preserve or purge isolated profile data.
-- **Rebuild All Wrappers:** 1-click rebuild of all persistent wrappers after macOS system updates or app relocations.
-- **CLI Profiles Manager:** 1-click generation of CLI wrappers, with PATH health check and automated fix snippet.
+- **Safe Deletion:** Deleting a profile removes the shortcut and asks whether to keep or erase its data.
+- **Editing:** Rename a profile, change its badge, launch arguments or environment. Logins and data are kept.
+- **Repair All Shortcuts:** Rebuilds every shortcut after an app moves or Twinly updates (Settings › Storage, or File menu). Logins and data are kept.
+- **Open at login and menu bar:** Optional, in Settings (⌘,).
+- **Command Line profiles:** Generates commands like `claude-work`, with a PATH check against your login shell and a copyable fix.
 - **Menu Bar Companion:** Quick launcher in the macOS menu bar to trigger any profile instantly.
 
 ---
@@ -44,16 +46,19 @@ Twinly also manages **CLI Profiles** for command-line tools like **Claude Code**
 Twinly/
 ├── Sources/
 │   ├── Twinly/               # SwiftUI macOS Application
-│   │   ├── Views/            # ProfilesListView, AddProfileSheet, CLIProfilesView, MaintenanceView
-│   │   └── TwinlyApp.swift   # Main scene + MenuBarExtra
+│   │   ├── Views/            # Apps/, CommandLine/, Settings/, Shared/, HowItWorksView, MainContentView
+│   │   ├── UIState.swift     # Selection, sheets, alerts and shared actions
+│   │   ├── TwinlyCommands.swift  # Menu commands and shortcuts
+│   │   └── TwinlyApp.swift   # Main window, Settings and MenuBarExtra scenes
 │   ├── TwinlyCore/           # Core Framework
 │   │   ├── Models/           # Profile, CLIProfile, AppStrategy, LauncherConfig
 │   │   ├── Inspector/        # AppInspector (framework detection & codesign entitlement check)
 │   │   ├── Builders/         # WrapperBuilder, IconBadgeGenerator, CLIWrapperBuilder
+│   │   ├── Support/          # ShellEnvironment, InputParsing, ProfileStatus
 │   │   └── Store/            # ProfileStore (JSON persistence & LaunchServices management)
 │   └── TwinlyLauncher/       # Lightweight compiled Swift launcher embedded into wrappers
 ├── Tests/
-│   └── TwinlyTests/          # Comprehensive 50-assertion test suite
+│   └── TwinlyTests/          # Test suite (make test)
 ├── Resources/                # Info.plist, AppIcon.icns
 ├── Makefile                  # make build, make test, make app, make dmg
 ├── LICENSE                   # MIT License
@@ -103,7 +108,7 @@ make dmg
 
 ## Acceptance Testing & Verification
 
-Twinly includes a 50-assertion automated test suite verifying:
+Twinly includes an automated test suite (`make test`) verifying:
 1. **AppInspector:** Correctly detects Electron frameworks, Chromium frameworks, generic Cocoa apps, and Sandboxed apps (tested against real system apps including `/Applications/Claude.app`, `/Applications/Google Chrome.app`, and `/Applications/Pages.app`).
 2. **IconBadgeGenerator:** Builds multi-resolution `.icns` files using `iconutil`.
 3. **WrapperBuilder:** Creates complete, valid `.app` wrappers, writes `twinly.json`, ad-hoc codesigns the bundle, and registers with `lsregister`.
