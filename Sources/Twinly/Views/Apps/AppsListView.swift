@@ -27,24 +27,6 @@ struct AppsListView: View {
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    ui.sheet = .newApp(prefill: nil)
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "plus")
-                            .font(.body.weight(.semibold))
-                        Text("Add App")
-                            .fontWeight(.medium)
-                    }
-                    .padding(.horizontal, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.accentColor)
-                .help("Add App Profile (⌘N)")
-            }
-        }
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             AppPicker.loadApp(from: providers) { url in ui.sheet = .newApp(prefill: url) }
         }

@@ -40,24 +40,6 @@ struct CommandLineListView: View {
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    ui.sheet = .newCLI(template: nil)
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "plus")
-                            .font(.body.weight(.semibold))
-                        Text("Add CLI")
-                            .fontWeight(.medium)
-                    }
-                    .padding(.horizontal, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.accentColor)
-                .help("New Command-Line Profile (⇧⌘N)")
-            }
-        }
         .task { await checkPath() }
     }
 
