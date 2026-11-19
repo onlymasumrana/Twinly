@@ -39,21 +39,25 @@ struct HowItWorksView: View {
 
                 GroupBox {
                     VStack(alignment: .leading, spacing: 4) {
-                        DisclosureGroup("Some apps share logins through the Keychain") {
-                            note("A few Mac apps save their login in the macOS Keychain under a fixed name instead of in their data folder. Copies of those apps may share one login. Chromium browsers and Claude Code keep logins per profile.")
-                        }
+                        ExpandableNoteRow(
+                            title: "Some apps share logins through the Keychain",
+                            bodyText: "A few Mac apps save their login in the macOS Keychain under a fixed name instead of in their data folder. Copies of those apps may share one login. Chromium browsers and Claude Code keep logins per profile."
+                        )
                         Divider()
-                        DisclosureGroup("The Dock shows the original icon while running") {
-                            note("While a copy runs, macOS shows the original app's icon in the Dock. The shortcut in Finder, Spotlight and Launchpad keeps your badge.")
-                        }
+                        ExpandableNoteRow(
+                            title: "Separate Dock icons vs. lightweight shortcuts",
+                            bodyText: "When 'Separate Dock icon while running' is enabled, Twinly uses an APFS zero-space clone so the running app shows your custom badged icon in the Dock and Cmd+Tab switcher."
+                        )
                         Divider()
-                        DisclosureGroup("App Store apps can't be copied") {
-                            note("macOS locks the data of sandboxed App Store apps to one copy. Twinly detects these and tells you before you start.")
-                        }
+                        ExpandableNoteRow(
+                            title: "App Store apps can't be copied",
+                            bodyText: "macOS locks the data of sandboxed App Store apps to one copy. Twinly detects these and tells you before you start."
+                        )
                         Divider()
-                        DisclosureGroup("Each copy runs on its own") {
-                            note("Because each profile has its own data folder, apps that normally allow only one window of themselves can run side by side.")
-                        }
+                        ExpandableNoteRow(
+                            title: "Each copy runs on its own",
+                            bodyText: "Because each profile has its own data folder, apps that normally allow only one window of themselves can run side by side."
+                        )
                     }
                     .padding(6)
                 } label: {
@@ -108,5 +112,45 @@ struct HowItWorksView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, 6)
+    }
+}
+
+private struct ExpandableNoteRow: View {
+    let title: String
+    let bodyText: String
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 12)
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(bodyText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 20)
+                    .padding(.bottom, 6)
+            }
+        }
     }
 }

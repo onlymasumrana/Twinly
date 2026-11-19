@@ -111,13 +111,34 @@ struct CLIProfileSheet: View {
                 }
 
                 Section {
-                    DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showAdvanced.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(showAdvanced ? 90 : 0))
+                                .frame(width: 12)
+                            Text("Advanced")
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if showAdvanced {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("Config variable", text: $configVar)
                                 .font(.system(.body, design: .monospaced))
                             if let configVarError = configVarError { InlineError(text: configVarError) }
                         }
-                        .padding(.top, 6)
+                        .padding(.top, 4)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Environment")
                             TextEditor(text: $environment)
@@ -131,7 +152,7 @@ struct CLIProfileSheet: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.top, 6)
+                        .padding(.top, 4)
                         LabeledContent("Config folder") {
                             Text(configFolderPath)
                                 .font(.system(.callout, design: .monospaced))
@@ -139,7 +160,7 @@ struct CLIProfileSheet: View {
                                 .lineLimit(1).truncationMode(.middle)
                                 .textSelection(.enabled)
                         }
-                        .padding(.top, 6)
+                        .padding(.top, 4)
                     }
                 }
 
