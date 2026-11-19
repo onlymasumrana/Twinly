@@ -79,7 +79,15 @@ Each generated shortcut at `~/Applications/Twinly/<App Name> (<Profile>).app` co
 
 ## Installation & First Launch
 
-### Option 1: Download Pre-built DMG
+### Option 1: Homebrew (Recommended)
+```bash
+brew tap onlymasumrana/tap
+brew trust onlymasumrana/tap   # required on Homebrew 7+
+brew install --cask twinly
+```
+*(If macOS Gatekeeper blocks first launch, run `xattr -dr com.apple.quarantine "/Applications/Twinly.app"` or right-click `Twinly.app` in `/Applications` and click **Open**.)*
+
+### Option 2: Download Pre-built DMG
 1. Download `Twinly.dmg` from the [Releases](https://github.com/onlymasumrana/Twinly/releases) page.
 2. Open the DMG and drag **Twinly** to your `/Applications` folder.
 3. **First-time Gatekeeper Bypass:** Because Twinly is free open-source software distributed outside the Mac App Store:
@@ -88,7 +96,7 @@ Each generated shortcut at `~/Applications/Twinly/<App Name> (<Profile>).app` co
    - Click **Open** on the confirmation prompt
    - Subsequent launches open normally with a double-click!
 
-### Option 2: Build from Source
+### Option 3: Build from Source
 ```bash
 git clone https://github.com/onlymasumrana/Twinly.git
 cd twinly
@@ -148,11 +156,12 @@ make test
 
 ## Stretch Goals (Roadmap)
 
-- [ ] Per-instance Dock icon injection via auxiliary bundle trampoline
-- [ ] Sparkle auto-update integration
+- [x] Separate Dock icons via APFS copy-on-write (with automatic background sync)
+- [x] Built-in GitHub Releases auto-updater
+- [x] Homebrew Cask formula (`brew install --cask onlymasumrana/tap/twinly`)
 - [ ] Profile export and import (sync profiles across Macs)
-- [ ] Per-profile proxy, VPN, and custom environment variable profiles
-- [ ] Homebrew Cask formula (`brew install --cask twinly`)
+- [ ] Per-profile proxy and VPN environment presets
+- [ ] Apple Developer ID notarization pipeline
 
 ---
 

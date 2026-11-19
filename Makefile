@@ -5,7 +5,7 @@ BUILD_DMG = build/$(DMG_NAME)
 ZIP_NAME = Twinly.zip
 BUILD_ZIP = build/$(ZIP_NAME)
 
-.PHONY: all build build-universal test app dmg zip clean install bump-patch bump-minor release
+.PHONY: all build build-universal test app dmg zip clean install bump-patch bump-minor update-cask release
 
 all: build-universal
 
@@ -82,10 +82,25 @@ bump-minor:
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$NEW_BUILD" Resources/Info.plist; \
 	echo "Bumped version: $$CUR_VER (build $$CUR_BUILD) -> $$NEW_VER (build $$NEW_BUILD)"
 
+update-cask:
+	@CASK_FILE="$(HOME)/Developer/homebrew-tap/Casks/twinly.rb"; \
+	if [ -f "$$CASK_FILE" ] && [ -f "$(BUILD_DMG)" ]; then \
+		VER=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist); \
+		SHA=$$(shasum -a 256 "$(BUILD_DMG)" | awk '{print $$1}'); \
+		sed -i '' -E "s/^  version \".*\"/  version \"$$VER\"/" "$$CASK_FILE"; \
+		sed -i '' -E "s/^  sha256 \".*\"/  sha256 \"$$SHA\"/" "$$CASK_FILE"; \
+		cd "$(HOME)/Developer/homebrew-tap" && git add Casks/twinly.rb && \
+		(git diff --cached --quiet || (git commit -m "Update twinly cask to v$$VER" && git push origin main)); \
+		echo "Updated Homebrew cask to v$$VER ($$SHA)"; \
+	else \
+		echo "Skipping update-cask: $$CASK_FILE or $(BUILD_DMG) not found"; \
+	fi
+
 release: bump-patch dmg zip
 	@VER=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist); \
 	git add -A && git commit -m "Release v$$VER" && git push origin main && \
 	gh release create "v$$VER" $(BUILD_DMG) $(BUILD_ZIP) --title "Twinly v$$VER" --generate-notes
+	@$(MAKE) update-cask
 
 clean:
 	rm -rf .build build
