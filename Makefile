@@ -5,7 +5,7 @@ BUILD_DMG = build/$(DMG_NAME)
 ZIP_NAME = Twinly.zip
 BUILD_ZIP = build/$(ZIP_NAME)
 
-.PHONY: all build build-universal test app dmg zip clean install
+.PHONY: all build build-universal test app dmg zip clean install bump-patch bump-minor release
 
 all: build-universal
 
@@ -60,8 +60,32 @@ zip: app
 
 install: app
 	@echo "Installing Twinly.app to /Applications..."
+	@rm -rf /Applications/$(APP_NAME)
 	@cp -R $(BUILD_APP) /Applications/
 	@echo "Installed to /Applications/Twinly.app"
+
+bump-patch:
+	@CUR_VER=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist); \
+	CUR_BUILD=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Resources/Info.plist); \
+	NEW_VER=$$(echo "$$CUR_VER" | awk -F. '{printf "%d.%d.%d", $$1, $$2, $$3+1}'); \
+	NEW_BUILD=$$((CUR_BUILD + 1)); \
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$NEW_VER" Resources/Info.plist; \
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$NEW_BUILD" Resources/Info.plist; \
+	echo "Bumped version: $$CUR_VER (build $$CUR_BUILD) -> $$NEW_VER (build $$NEW_BUILD)"
+
+bump-minor:
+	@CUR_VER=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist); \
+	CUR_BUILD=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Resources/Info.plist); \
+	NEW_VER=$$(echo "$$CUR_VER" | awk -F. '{printf "%d.%d.0", $$1, $$2+1}'); \
+	NEW_BUILD=$$((CUR_BUILD + 1)); \
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$NEW_VER" Resources/Info.plist; \
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$NEW_BUILD" Resources/Info.plist; \
+	echo "Bumped version: $$CUR_VER (build $$CUR_BUILD) -> $$NEW_VER (build $$NEW_BUILD)"
+
+release: bump-patch dmg zip
+	@VER=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist); \
+	git add -A && git commit -m "Release v$$VER" && git push origin main && \
+	gh release create "v$$VER" $(BUILD_DMG) $(BUILD_ZIP) --title "Twinly v$$VER" --generate-notes
 
 clean:
 	rm -rf .build build
