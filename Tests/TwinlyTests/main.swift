@@ -608,6 +608,143 @@ func runAllTests() {
         print("❌ Gecko/clone/reset test failed: \(error)")
     }
 
+    print("\n--- Test: Original app updates preserve clone data ---")
+    do {
+        let fm = FileManager.default
+        let original = try createMockAppBundle(in: tempDir, name: "UpdatingApp", isElectron: true)
+        let plistURL = original.appendingPathComponent("Contents/Info.plist")
+        var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: plistURL), format: nil) as! [String: Any]
+        info["CFBundleShortVersionString"] = "1.0"
+        info["CFBundleVersion"] = "1.0"
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: plistURL)
+        let analysis = try AppInspector.shared.inspect(appURL: original)
+        let builder = WrapperBuilder.shared
+        let profile = try builder.buildWrapper(
+            analysis: analysis, profileName: "Work", badgeColorHex: "#EF4444", badgeText: "W",
+            customArgs: ["--test"], customEnv: ["TEST": "value"],
+            customTargetDir: tempDir.appendingPathComponent("updateApps"),
+            customProfilesDataDir: tempDir.appendingPathComponent("updateData"), separateDockIcon: true)
+        assertFalse(builder.needsSyncWithOriginalApp(profile: profile))
+        let dataDir = URL(fileURLWithPath: profile.profileDirectory)
+        let cookies = dataDir.appendingPathComponent("Cookies")
+        try "saved login".write(to: cookies, atomically: true, encoding: .utf8)
+        info["CFBundleVersion"] = "2.0"
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: plistURL)
+        let newBinary = "#!/bin/sh\necho '2.0'\n"
+        try newBinary.write(to: original.appendingPathComponent("Contents/MacOS/UpdatingApp"), atomically: true, encoding: .utf8)
+        assertTrue(builder.needsSyncWithOriginalApp(profile: profile))
+        let marker = dataDir.appendingPathComponent(".needs_rebuild")
+        try Data().write(to: marker)
+        let rebuilt = try builder.buildWrapper(
+            analysis: try AppInspector.shared.inspect(appURL: original), profileName: profile.name,
+            badgeColorHex: profile.badgeColorHex, badgeText: profile.badgeText,
+            customArgs: profile.customArgs, customEnv: profile.customEnv, existing: profile)
+        assertFalse(builder.needsSyncWithOriginalApp(profile: rebuilt))
+        assertEqual(rebuilt, profile, "identity, data path, wrapper path and settings survive")
+        assertEqual(try String(contentsOf: cookies, encoding: .utf8), "saved login")
+        assertEqual(try String(contentsOf: URL(fileURLWithPath: rebuilt.wrapperAppPath)
+            .appendingPathComponent("Contents/MacOS/UpdatingApp.twinly-orig"), encoding: .utf8), newBinary)
+        assertFalse(fm.fileExists(atPath: marker.path), "successful rebuild clears marker")
+        try Data().write(to: marker)
+        assertTrue(builder.needsSyncWithOriginalApp(profile: rebuilt), "marker alone requests rebuild")
+        try fm.removeItem(at: marker)
+        let wrapperPlist = URL(fileURLWithPath: rebuilt.wrapperAppPath).appendingPathComponent("Contents/Info.plist")
+        var stamped = try PropertyListSerialization.propertyList(from: Data(contentsOf: wrapperPlist), format: nil) as! [String: Any]
+        assertEqual(stamped["TwinlyOriginalBundleVersion"] as? String, "2.0")
+        assertEqual(stamped["TwinlyOriginalShortVersion"] as? String, "1.0")
+        stamped.removeValue(forKey: "TwinlyOriginalBundleVersion")
+        try PropertyListSerialization.data(fromPropertyList: stamped, format: .xml, options: 0).write(to: wrapperPlist)
+        assertTrue(builder.needsSyncWithOriginalApp(profile: rebuilt), "unstamped old clones are refreshed")
+        var lightweight = rebuilt
+        lightweight.separateDockIcon = nil
+        assertFalse(builder.needsSyncWithOriginalApp(profile: lightweight))
+        try fm.removeItem(at: original)
+        assertFalse(builder.needsSyncWithOriginalApp(profile: rebuilt), "missing originals are skipped")
+
+        let unversioned = try createMockAppBundle(in: tempDir, name: "Unversioned", isElectron: true)
+        let first = OriginalAppVersion(appURL: unversioned)
+        let executable = unversioned.appendingPathComponent("Contents/MacOS/Unversioned")
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 123456789)], ofItemAtPath: executable.path)
+        assertFalse(OriginalAppVersion(appURL: unversioned).matches(stampedInfo: [
+            "TwinlyOriginalShortVersion": first.shortVersion, "TwinlyOriginalBundleVersion": first.bundleVersion
+        ]), "unversioned executable changes use modification date")
+    } catch {
+        failedTests += 1
+        print("❌ Clone update test failed: \(error)")
+    }
+
+    print("\n--- Test: Legacy v1.0.0 JSON ---")
+    do {
+        let id = UUID()
+        let profileJSON = """
+        [{"id":"\(id.uuidString)","name":"Work","originalAppPath":"/Applications/Claude.app",
+          "originalBundleId":"com.example.claude","appName":"Claude","strategy":"electronChromium",
+          "badgeColorHex":"#EF4444","badgeText":"W","profileDirectory":"/profiles/work",
+          "wrapperAppPath":"/apps/Claude (Work).app","customArgs":["--test"],"customEnv":{"TEST":"yes"},
+          "createdAt":42,"lastLaunchedAt":84}]
+        """
+        let decoder = JSONDecoder()
+        let expected = Profile(id: id, name: "Work", originalAppPath: "/Applications/Claude.app",
+            originalBundleId: "com.example.claude", appName: "Claude", strategy: .electronChromium,
+            badgeColorHex: "#EF4444", badgeText: "W", profileDirectory: "/profiles/work",
+            wrapperAppPath: "/apps/Claude (Work).app", customArgs: ["--test"], customEnv: ["TEST": "yes"],
+            createdAt: Date(timeIntervalSinceReferenceDate: 42), lastLaunchedAt: Date(timeIntervalSinceReferenceDate: 84))
+        assertEqual(try decoder.decode([Profile].self, from: Data(profileJSON.utf8)), [expected])
+        let configJSON = """
+        [{"version":1,"profileId":"\(id.uuidString)","profileName":"Work",
+          "originalAppPath":"/Applications/Claude.app","executablePath":"/Applications/Claude.app/Contents/MacOS/Claude",
+          "strategy":"electronChromium","profileDirectory":"/profiles/work",
+          "arguments":["--test"],"environment":{"TEST":"yes"}}]
+        """
+        let configs = try decoder.decode([LauncherConfig].self, from: Data(configJSON.utf8))
+        assertEqual(configs.count, 1)
+        let config = configs[0]
+        assertEqual(config.version, 1)
+        assertEqual(config.profileId, id)
+        assertEqual(config.profileName, "Work")
+        assertEqual(config.originalAppPath, expected.originalAppPath)
+        assertEqual(config.executablePath, "/Applications/Claude.app/Contents/MacOS/Claude")
+        assertEqual(config.strategy, expected.strategy.rawValue)
+        assertEqual(config.profileDirectory, expected.profileDirectory)
+        assertEqual(config.arguments, expected.customArgs)
+        assertEqual(config.environment, expected.customEnv)
+        assertEqual(config.separateDockIcon, nil)
+        let storeDir = tempDir.appendingPathComponent("legacyStore")
+        try FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        try Data(profileJSON.utf8).write(to: storeDir.appendingPathComponent("profiles.json"))
+        let cli = CLIProfile(id: id, name: "CLI", commandName: "claude-work", preset: .claudeCode,
+            configEnvVar: "CLAUDE_CONFIG_DIR", profileDirectory: "/cli/work", realBinaryPath: "/bin/claude",
+            wrapperScriptPath: "/bin/claude-work")
+        var cliJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(cli)) as! [String: Any]
+        cliJSON.removeValue(forKey: "customEnv")
+        cliJSON.removeValue(forKey: "createdAt")
+        try JSONSerialization.data(withJSONObject: [cliJSON]).write(to: storeDir.appendingPathComponent("cli_profiles.json"))
+        let store = ProfileStore(baseStorageDir: storeDir)
+        assertEqual(store.loadError, nil)
+        assertEqual(store.profiles, [expected])
+        assertEqual(store.cliProfiles.first?.id, id)
+        assertEqual(store.cliProfiles.first?.customEnv, [:])
+        // Missing newly introduced collections must also use their defaults.
+        var minimal = try JSONSerialization.jsonObject(with: Data(profileJSON.utf8)) as! [[String: Any]]
+        for key in ["customArgs", "customEnv", "createdAt", "lastLaunchedAt", "badgeText", "badgeColorHex"] {
+            minimal[0].removeValue(forKey: key)
+        }
+        let old = try decoder.decode([Profile].self, from: JSONSerialization.data(withJSONObject: minimal))[0]
+        assertEqual(old.id, id)
+        assertEqual(old.profileDirectory, expected.profileDirectory)
+        assertEqual(old.customArgs, [])
+        assertEqual(old.customEnv, [:])
+        var minimalConfig = try JSONSerialization.jsonObject(with: Data(configJSON.utf8)) as! [[String: Any]]
+        for key in ["version", "arguments", "environment"] { minimalConfig[0].removeValue(forKey: key) }
+        let oldConfig = try decoder.decode([LauncherConfig].self, from: JSONSerialization.data(withJSONObject: minimalConfig))[0]
+        assertEqual(oldConfig.version, 1)
+        assertEqual(oldConfig.arguments, [])
+        assertEqual(oldConfig.environment, [:])
+    } catch {
+        failedTests += 1
+        print("❌ Legacy JSON test failed: \(error)")
+    }
+
     // UpdateChecker
     assertEqual(UpdateChecker.normalizeVersion("v1.2.0"), [1, 2, 0])
     assertEqual(UpdateChecker.normalizeVersion("V2.0-3"), [2, 0, 3])

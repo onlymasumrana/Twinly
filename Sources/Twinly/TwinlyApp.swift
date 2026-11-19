@@ -10,7 +10,8 @@ struct TwinlyApp: App {
     @Environment(\.openWindow) private var openWindow
 
     init() {
-        let store = ProfileStore.shared
+        let store = ProfileStore.shared // Initializes and loads persisted profiles.
+        store.syncOutdatedClonesIfNeeded()
         _store = StateObject(wrappedValue: store)
         _ui = StateObject(wrappedValue: UIState(store: store))
         _monitor = StateObject(wrappedValue: RunningMonitor(store: store))

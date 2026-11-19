@@ -21,7 +21,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "TwinlyLauncher",
-            dependencies: [],
+            dependencies: ["TwinlyCore"],
             path: "Sources/TwinlyLauncher"
         ),
         .executableTarget(

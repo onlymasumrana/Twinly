@@ -88,6 +88,29 @@ public struct Profile: Identifiable, Codable, Equatable {
     public var lastLaunchedAt: Date?
     public var separateDockIcon: Bool?
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, originalAppPath, originalBundleId, appName, strategy, badgeColorHex, badgeText, profileDirectory, wrapperAppPath, customArgs, customEnv, createdAt, lastLaunchedAt, separateDockIcon
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        originalAppPath = try c.decode(String.self, forKey: .originalAppPath)
+        originalBundleId = try c.decode(String.self, forKey: .originalBundleId)
+        appName = try c.decode(String.self, forKey: .appName)
+        strategy = try c.decode(AppStrategy.self, forKey: .strategy)
+        badgeColorHex = try c.decodeIfPresent(String.self, forKey: .badgeColorHex) ?? "#3B82F6"
+        badgeText = try c.decodeIfPresent(String.self, forKey: .badgeText) ?? "2"
+        profileDirectory = try c.decode(String.self, forKey: .profileDirectory)
+        wrapperAppPath = try c.decode(String.self, forKey: .wrapperAppPath)
+        customArgs = try c.decodeIfPresent([String].self, forKey: .customArgs) ?? []
+        customEnv = try c.decodeIfPresent([String: String].self, forKey: .customEnv) ?? [:]
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSinceReferenceDate: 0)
+        lastLaunchedAt = try c.decodeIfPresent(Date.self, forKey: .lastLaunchedAt) ?? nil
+        separateDockIcon = try c.decodeIfPresent(Bool.self, forKey: .separateDockIcon) ?? nil
+    }
+
     public init(
         id: UUID = UUID(),
         name: String,
@@ -188,6 +211,25 @@ public struct CLIProfile: Identifiable, Codable, Equatable {
     public var createdAt: Date
     public var lastLaunchedAt: Date?
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, commandName, preset, configEnvVar, profileDirectory, realBinaryPath, wrapperScriptPath, customEnv, createdAt, lastLaunchedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        commandName = try c.decode(String.self, forKey: .commandName)
+        preset = try c.decode(CLIPreset.self, forKey: .preset)
+        configEnvVar = try c.decode(String.self, forKey: .configEnvVar)
+        profileDirectory = try c.decode(String.self, forKey: .profileDirectory)
+        realBinaryPath = try c.decode(String.self, forKey: .realBinaryPath)
+        wrapperScriptPath = try c.decode(String.self, forKey: .wrapperScriptPath)
+        customEnv = try c.decodeIfPresent([String: String].self, forKey: .customEnv) ?? [:]
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSinceReferenceDate: 0)
+        lastLaunchedAt = try c.decodeIfPresent(Date.self, forKey: .lastLaunchedAt) ?? nil
+    }
+
     public init(
         id: UUID = UUID(),
         name: String,
@@ -226,6 +268,24 @@ public struct LauncherConfig: Codable {
     public var arguments: [String]
     public var environment: [String: String]
     public var separateDockIcon: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case version, profileId, profileName, originalAppPath, executablePath, strategy, profileDirectory, arguments, environment, separateDockIcon
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        profileId = try c.decode(UUID.self, forKey: .profileId)
+        profileName = try c.decode(String.self, forKey: .profileName)
+        originalAppPath = try c.decode(String.self, forKey: .originalAppPath)
+        executablePath = try c.decode(String.self, forKey: .executablePath)
+        strategy = try c.decode(String.self, forKey: .strategy)
+        profileDirectory = try c.decode(String.self, forKey: .profileDirectory)
+        arguments = try c.decodeIfPresent([String].self, forKey: .arguments) ?? []
+        environment = try c.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+        separateDockIcon = try c.decodeIfPresent(Bool.self, forKey: .separateDockIcon) ?? nil
+    }
 
     public init(
         version: Int = 1,

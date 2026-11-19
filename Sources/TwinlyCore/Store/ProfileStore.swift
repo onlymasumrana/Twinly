@@ -34,6 +34,8 @@ public final class ProfileStore: ObservableObject {
     public let baseStorageDir: URL
     private let profilesFileURL: URL
     private let cliProfilesFileURL: URL
+    private let cloneSyncQueue = DispatchQueue(label: "io.twinly.clone-sync", qos: .utility)
+    private var syncingClones = false // Accessed on the main thread.
 
     public init(baseStorageDir: URL? = nil) {
         let base = baseStorageDir ?? FileManager.default.homeDirectoryForCurrentUser
@@ -96,6 +98,44 @@ public final class ProfileStore: ObservableObject {
         if let idx = profiles.firstIndex(where: { $0.id == profile.id }) {
             profiles[idx] = profile
             saveProfiles()
+        }
+    }
+
+    /// Refresh idle clones without blocking startup or moving any profile data.
+    public func syncOutdatedClonesIfNeeded() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, !self.syncingClones, self.loadError == nil else { return }
+            self.syncingClones = true
+            let snapshot = self.profiles
+            self.cloneSyncQueue.async {
+                defer { DispatchQueue.main.async { self.syncingClones = false } }
+                for profile in snapshot {
+                    guard WrapperBuilder.shared.needsSyncWithOriginalApp(profile: profile),
+                          !ProfileStatus.isRunning(profile) else { continue }
+                    // Skip profiles edited or removed since the scan began.
+                    guard DispatchQueue.main.sync(execute: { self.profiles.contains(profile) }) else { continue }
+                    do {
+                        let analysis = try AppInspector.shared.inspect(appURL: URL(fileURLWithPath: profile.originalAppPath))
+                        let rebuilt = try WrapperBuilder.shared.buildWrapper(
+                            analysis: analysis,
+                            profileName: profile.name,
+                            badgeColorHex: profile.badgeColorHex,
+                            badgeText: profile.badgeText,
+                            customArgs: profile.customArgs,
+                            customEnv: profile.customEnv,
+                            separateDockIcon: profile.separateDockIcon,
+                            existing: profile
+                        )
+                        DispatchQueue.main.sync {
+                            guard self.profiles.contains(profile) else { return }
+                            self.updateProfile(rebuilt)
+                        }
+                    } catch {
+                        // Leave the old wrapper, data and rebuild marker available for another attempt.
+                        NSLog("Couldn't refresh Twinly profile %@: %@", profile.name, error.localizedDescription)
+                    }
+                }
+            }
         }
     }
 

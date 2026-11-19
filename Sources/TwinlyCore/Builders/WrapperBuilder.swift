@@ -58,6 +58,21 @@ public final class WrapperBuilder {
         return plist["TwinlyProfileId"] as? String
     }
 
+    /// Only clones contain stale app code; lightweight shortcuts always open the original.
+    public func needsSyncWithOriginalApp(profile: Profile) -> Bool {
+        let fm = FileManager.default
+        guard profile.separateDockIcon == true,
+              fm.fileExists(atPath: profile.originalAppPath),
+              fm.fileExists(atPath: profile.wrapperAppPath) else { return false }
+        if fm.fileExists(atPath: URL(fileURLWithPath: profile.profileDirectory)
+            .appendingPathComponent(".needs_rebuild").path) { return true }
+        let plistURL = URL(fileURLWithPath: profile.wrapperAppPath).appendingPathComponent("Contents/Info.plist")
+        let info = (try? Data(contentsOf: plistURL)).flatMap {
+            (try? PropertyListSerialization.propertyList(from: $0, format: nil)) as? [String: Any]
+        } ?? [:]
+        return !OriginalAppVersion(appURL: URL(fileURLWithPath: profile.originalAppPath)).matches(stampedInfo: info)
+    }
+
     /// File name used for a shortcut (without `.app`).
     public func shortcutName(appName: String, profileName: String) -> String {
         "\(appName) (\(profileName))"
@@ -85,7 +100,9 @@ public final class WrapperBuilder {
         let profileId = existing?.id ?? UUID()
         let fileManager = FileManager.default
 
-        let appsDir = customTargetDir ?? Self.defaultApplicationsDir
+        let appsDir = customTargetDir ?? existing.map {
+            URL(fileURLWithPath: $0.wrapperAppPath).deletingLastPathComponent()
+        } ?? Self.defaultApplicationsDir
         try fileManager.createDirectory(at: appsDir, withIntermediateDirectories: true)
 
         let wrapperName = "\(shortcutName(appName: analysis.appName, profileName: profileName)).app"
@@ -126,6 +143,8 @@ public final class WrapperBuilder {
         let bundleId = "io.twinly.\(sanitizeBundleId(analysis.bundleIdentifier)).\(profileId.uuidString.prefix(8).lowercased())"
         let displayName = "\(analysis.appName) (\(profileName))"
 
+        let originalVersion = OriginalAppVersion(appURL: analysis.appURL)
+
         if useClone {
             try cloneOriginal(analysis.appURL, to: tmpURL)
             let execName = URL(fileURLWithPath: analysis.executablePath).lastPathComponent
@@ -148,6 +167,8 @@ public final class WrapperBuilder {
             plist.removeValue(forKey: "CFBundleIconName")
             plist["TwinlyProfileId"] = profileId.uuidString
             plist["TwinlyOriginalApp"] = analysis.appURL.path
+            plist["TwinlyOriginalShortVersion"] = originalVersion.shortVersion
+            plist["TwinlyOriginalBundleVersion"] = originalVersion.bundleVersion
             try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
             try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
         } else {
@@ -173,7 +194,9 @@ public final class WrapperBuilder {
                 "LSUIElement": false,
                 "NSHighResolutionCapable": true,
                 "TwinlyProfileId": profileId.uuidString,
-                "TwinlyOriginalApp": analysis.appURL.path
+                "TwinlyOriginalApp": analysis.appURL.path,
+                "TwinlyOriginalShortVersion": originalVersion.shortVersion,
+                "TwinlyOriginalBundleVersion": originalVersion.bundleVersion
             ]
             let plistData = try PropertyListSerialization.data(fromPropertyList: infoPlist, format: .xml, options: 0)
             try plistData.write(to: contentsURL.appendingPathComponent("Info.plist"))
@@ -228,11 +251,18 @@ public final class WrapperBuilder {
             signWrapperAdHoc(wrapperURL: tmpURL)
         }
 
-        // Move into place.
-        if fileManager.fileExists(atPath: wrapperURL.path) {
-            try fileManager.removeItem(at: wrapperURL)
+        // Keep the previous shortcut until the replacement succeeds so a failed move is recoverable.
+        let backupURL = appsDir.appendingPathComponent(".twinly-backup-\(UUID().uuidString).app")
+        let replacing = fileManager.fileExists(atPath: wrapperURL.path)
+        if replacing { try fileManager.moveItem(at: wrapperURL, to: backupURL) }
+        do {
+            try fileManager.moveItem(at: tmpURL, to: wrapperURL)
+        } catch {
+            if replacing { try? fileManager.moveItem(at: backupURL, to: wrapperURL) }
+            throw error
         }
-        try fileManager.moveItem(at: tmpURL, to: wrapperURL)
+        if replacing { try? fileManager.removeItem(at: backupURL) }
+        try? fileManager.removeItem(at: profileDataDir.appendingPathComponent(".needs_rebuild"))
 
         // Remove the old bundle if the shortcut was renamed.
         if let existing = existing, existing.wrapperAppPath != wrapperURL.path,

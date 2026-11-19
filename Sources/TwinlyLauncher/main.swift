@@ -1,18 +1,7 @@
 import Foundation
 import AppKit
 
-struct LauncherConfig: Codable {
-    var version: Int
-    var profileId: UUID
-    var profileName: String
-    var originalAppPath: String
-    var executablePath: String
-    var strategy: String
-    var profileDirectory: String
-    var arguments: [String]
-    var environment: [String: String]
-    var separateDockIcon: Bool?
-}
+import TwinlyCore
 
 func openTwinly() {
     if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "io.twinly.Twinly") {
@@ -140,7 +129,14 @@ func main() {
     // PID and bundle path stay ours and the Dock keeps the badged icon and "App (Profile)" name.
     let currentExec = Bundle.main.executablePath ?? CommandLine.arguments[0]
     let origExec = currentExec + ".twinly-orig"
-    if fileManager.isExecutableFile(atPath: origExec) {
+    let isClone = fileManager.fileExists(atPath: origExec)
+    let originalChanged = isClone && !OriginalAppVersion(appURL: originalAppURL)
+        .matches(stampedInfo: Bundle.main.infoDictionary ?? [:])
+    if originalChanged {
+        try? fileManager.createDirectory(at: profileDirURL, withIntermediateDirectories: true)
+        try? Data().write(to: profileDirURL.appendingPathComponent(".needs_rebuild"), options: .atomic)
+    }
+    if isClone && !originalChanged {
         for (key, val) in launchEnv { setenv(key, val, 1) }
         let argv = [origExec] + launchArgs
         var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
