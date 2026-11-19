@@ -4,13 +4,89 @@ import TwinlyCore
 
 struct SettingsView: View {
     var body: some View {
-        TabView {
+        Form {
+            SoftwareUpdateSection()
             GeneralSettings()
-                .tabItem { Label("General", systemImage: "gearshape") }
             StorageSettings()
-                .tabItem { Label("Storage", systemImage: "internaldrive") }
         }
-        .frame(width: 480)
+        .formStyle(.grouped)
+    }
+}
+
+struct SoftwareUpdateSection: View {
+    @ObservedObject private var updater = UpdateChecker.shared
+
+    private var isBusy: Bool {
+        switch updater.status {
+        case .checking, .downloading, .installing: return true
+        default: return false
+        }
+    }
+
+    private var statusText: String {
+        switch updater.status {
+        case .checking: return "Checking for updates…"
+        case .available(let r): return "Twinly \(r.tagName) is available!"
+        case .downloading(let p): return p
+        case .installing: return "Installing…"
+        case .error(let m): return m
+        case .upToDate: return "Up to date" + checkedSuffix
+        case .idle:
+            if let r = updater.latestAvailableRelease { return "Twinly \(r.tagName) is available!" }
+            return updater.lastCheckedAt == nil ? "Not checked yet" : "Last checked" + checkedSuffix.replacingOccurrences(of: " · checked", with: "")
+        }
+    }
+
+    private var checkedSuffix: String {
+        guard let d = updater.lastCheckedAt else { return "" }
+        return " · checked " + d.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    var body: some View {
+        Section("Software Update") {
+            HStack(spacing: 12) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable().frame(width: 48, height: 48)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Twinly \(updater.currentVersion)").font(.headline)
+                    Text(statusText).font(.callout)
+                        .foregroundStyle(isError ? Color.red : Color.secondary)
+                }
+                Spacer()
+                if isBusy { ProgressView().controlSize(.small) }
+                Button("Check for Updates") { updater.checkForUpdates(userInitiated: true) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isBusy)
+            }
+
+            if let release = updater.latestAvailableRelease {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !release.body.isEmpty {
+                        Text(release.body)
+                            .font(.callout).foregroundStyle(.secondary)
+                            .lineLimit(8)
+                    }
+                    HStack {
+                        Button("Install Update & Relaunch") { updater.downloadAndInstall(release) }
+                            .buttonStyle(.borderedProminent).tint(.blue)
+                            .disabled(isBusy)
+                        if let url = URL(string: release.htmlURL) {
+                            Link("Release Notes on GitHub", destination: url)
+                        }
+                    }
+                }
+            }
+
+            Toggle("Automatically check for updates", isOn: Binding(
+                get: { updater.autoCheckForUpdates }, set: { updater.autoCheckForUpdates = $0 }))
+            Toggle("Automatically download and install updates", isOn: Binding(
+                get: { updater.autoInstallUpdates }, set: { updater.autoInstallUpdates = $0 }))
+        }
+    }
+
+    private var isError: Bool {
+        if case .error = updater.status { return true }
+        return false
     }
 }
 
@@ -21,8 +97,8 @@ struct GeneralSettings: View {
     @State private var loaded = false
 
     var body: some View {
-        Form {
-            Section {
+        Section("General") {
+            Group {
                 Toggle("Open Twinly at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { newValue in
                         guard loaded else { return }
@@ -34,7 +110,6 @@ struct GeneralSettings: View {
                 Toggle("Show Twinly in the menu bar", isOn: $showMenuBarIcon)
             }
         }
-        .formStyle(.grouped)
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             DispatchQueue.main.async { loaded = true }
@@ -62,8 +137,8 @@ struct StorageSettings: View {
     private func abbreviated(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
 
     var body: some View {
-        Form {
-            Section {
+        Group {
+            Section("Storage & Maintenance") {
                 folderRow("Shortcuts", WrapperBuilder.defaultApplicationsDir)
                 folderRow("Profile data", store.baseStorageDir)
                 folderRow("Commands", CLIWrapperBuilder.defaultBinDir)
@@ -104,7 +179,6 @@ struct StorageSettings: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private func folderRow(_ title: String, _ url: URL) -> some View {

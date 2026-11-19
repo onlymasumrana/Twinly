@@ -3,7 +3,7 @@ import AppKit
 import TwinlyCore
 
 enum SidebarSection: Hashable {
-    case apps, commandLine, howItWorks
+    case apps, commandLine, howItWorks, settings
 }
 
 enum SheetRoute: Identifiable {
@@ -66,7 +66,7 @@ final class UIState: ObservableObject {
         switch section {
         case .apps: return !selection.isEmpty
         case .commandLine: return !cliSelection.isEmpty
-        case .howItWorks: return false
+        case .howItWorks, .settings: return false
         }
     }
 
@@ -184,7 +184,7 @@ final class UIState: ObservableObject {
         switch section {
         case .apps: open(ids: selection)
         case .commandLine: selectedCLIs.forEach(openInTerminal)
-        case .howItWorks: break
+        case .howItWorks, .settings: break
         }
     }
 
@@ -192,7 +192,7 @@ final class UIState: ObservableObject {
         switch section {
         case .apps: if let p = selectedApps.first { edit(p) }
         case .commandLine: if let c = selectedCLIs.first { sheet = .editCLI(c) }
-        case .howItWorks: break
+        case .howItWorks, .settings: break
         }
     }
 
@@ -200,7 +200,7 @@ final class UIState: ObservableObject {
         switch section {
         case .apps: selectedApps.forEach(duplicate)
         case .commandLine: if let c = selectedCLIs.first { sheet = .newCLI(template: c) }
-        case .howItWorks: break
+        case .howItWorks, .settings: break
         }
     }
 
@@ -208,7 +208,7 @@ final class UIState: ObservableObject {
         switch section {
         case .apps: selectedApps.forEach(showShortcut)
         case .commandLine: selectedCLIs.forEach(showScript)
-        case .howItWorks: break
+        case .howItWorks, .settings: break
         }
     }
 
@@ -216,7 +216,7 @@ final class UIState: ObservableObject {
         switch section {
         case .apps: requestDelete(apps: selectedApps)
         case .commandLine: requestDelete(cli: selectedCLIs)
-        case .howItWorks: break
+        case .howItWorks, .settings: break
         }
     }
 

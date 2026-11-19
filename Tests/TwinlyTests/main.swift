@@ -608,6 +608,30 @@ func runAllTests() {
         print("❌ Gecko/clone/reset test failed: \(error)")
     }
 
+    // UpdateChecker
+    assertEqual(UpdateChecker.normalizeVersion("v1.2.0"), [1, 2, 0])
+    assertEqual(UpdateChecker.normalizeVersion("V2.0-3"), [2, 0, 3])
+    assertTrue(UpdateChecker.isNewerVersion(remote: "v1.1.0", current: "1.0.0"))
+    assertFalse(UpdateChecker.isNewerVersion(remote: "1.0.0", current: "v1.0.0"))
+    assertTrue(UpdateChecker.isNewerVersion(remote: "2.0", current: "1.9.9"))
+    assertTrue(UpdateChecker.isNewerVersion(remote: "1.0.1", current: "1.0.0"))
+    assertFalse(UpdateChecker.isNewerVersion(remote: "1.0.0", current: "1.0.1"))
+    do {
+        let json = """
+        {"tag_name":"v1.3.0","name":"Twinly 1.3.0","body":"Notes","html_url":"https://github.com/onlymasumrana/Twinly/releases/tag/v1.3.0",
+         "published_at":"2026-01-01T00:00:00Z",
+         "assets":[{"name":"Twinly.dmg","browser_download_url":"https://x/Twinly.dmg"},{"name":"Twinly.zip","browser_download_url":"https://x/Twinly.zip"}]}
+        """
+        let info = try UpdateChecker.parseRelease(from: Data(json.utf8))
+        assertEqual(info.tagName, "v1.3.0")
+        assertEqual(info.htmlURL, "https://github.com/onlymasumrana/Twinly/releases/tag/v1.3.0")
+        assertEqual(info.zipDownloadURL, "https://x/Twinly.zip")
+        assertEqual(info.dmgDownloadURL, "https://x/Twinly.dmg")
+    } catch {
+        failedTests += 1
+        print("❌ parseRelease failed: \(error)")
+    }
+
     // Summary
     print("\n========================================")
     print(" Test Run Complete")

@@ -36,6 +36,7 @@ struct TwinlyApp: App {
             SettingsView()
                 .environmentObject(store)
                 .environmentObject(ui)
+                .frame(width: 540, height: 620)
         }
 
         MenuBarExtra("Twinly", systemImage: "square.on.square", isInserted: $showMenuBarIcon) {

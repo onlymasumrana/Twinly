@@ -4,6 +4,8 @@ import TwinlyCore
 struct MainContentView: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var ui: UIState
+    @ObservedObject private var updater = UpdateChecker.shared
+    @State private var bannerDismissed = false
     @State private var loadErrorAlert: String?
 
     var body: some View {
@@ -17,6 +19,11 @@ struct MainContentView: View {
                         .badge(store.cliProfiles.count)
                         .tag(SidebarSection.commandLine)
                 }
+                Section("App") {
+                    Label("Settings", systemImage: "gearshape")
+                        .badge(updater.latestAvailableRelease != nil ? "1" : nil)
+                        .tag(SidebarSection.settings)
+                }
                 Section("Help") {
                     Label("How It Works", systemImage: "questionmark.circle")
                         .tag(SidebarSection.howItWorks)
@@ -25,16 +32,11 @@ struct MainContentView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
         } detail: {
-            switch ui.section {
-            case .apps:
-                AppsListView()
-                    .navigationTitle("Apps")
-            case .commandLine:
-                CommandLineListView()
-                    .navigationTitle("Command Line")
-            case .howItWorks:
-                HowItWorksView()
-                    .navigationTitle("How It Works")
+            VStack(spacing: 0) {
+                if let release = updater.latestAvailableRelease, !bannerDismissed, ui.section != .settings {
+                    updateBanner(release)
+                }
+                detailContent
             }
         }
         .sheet(item: $ui.sheet) { route in
@@ -90,8 +92,39 @@ struct MainContentView: View {
         } message: { item in
             Text(item.message)
         }
-        .onAppear { surfaceLoadError() }
+        .onAppear {
+            surfaceLoadError()
+            if updater.autoCheckForUpdates { updater.checkForUpdates(userInitiated: false) }
+        }
         .onChange(of: store.loadError) { _ in surfaceLoadError() }
+    }
+
+    @ViewBuilder private var detailContent: some View {
+        switch ui.section {
+        case .apps:
+            AppsListView().navigationTitle("Apps")
+        case .commandLine:
+            CommandLineListView().navigationTitle("Command Line")
+        case .howItWorks:
+            HowItWorksView().navigationTitle("How It Works")
+        case .settings:
+            SettingsView().navigationTitle("Settings")
+        }
+    }
+
+    private func updateBanner(_ release: UpdateChecker.ReleaseInfo) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+            Text("Twinly \(release.tagName) is available").fontWeight(.medium)
+            Spacer()
+            Button("Update…") { ui.section = .settings }
+                .buttonStyle(.borderedProminent).tint(.white).foregroundStyle(.blue).controlSize(.small)
+            Button { bannerDismissed = true } label: { Image(systemName: "xmark") }
+                .buttonStyle(.plain)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(Color.blue)
     }
 
     private var sidebarSelection: Binding<SidebarSection?> {

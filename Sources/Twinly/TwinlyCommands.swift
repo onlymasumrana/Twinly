@@ -6,6 +6,14 @@ struct TwinlyCommands: Commands {
     let openMain: () -> Void
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                openMain()
+                ui.section = .settings
+                UpdateChecker.shared.checkForUpdates(userInitiated: true)
+            }
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("New App Profile…") {
                 openMain()
@@ -55,6 +63,8 @@ struct TwinlyCommands: Commands {
                 .keyboardShortcut("2")
             Button("How It Works") { ui.section = .howItWorks }
                 .keyboardShortcut("3")
+            Button("Settings") { ui.section = .settings }
+                .keyboardShortcut("4")
         }
     }
 }
