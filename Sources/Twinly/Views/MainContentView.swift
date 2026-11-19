@@ -19,17 +19,49 @@ struct MainContentView: View {
                         .badge(store.cliProfiles.count)
                         .tag(SidebarSection.commandLine)
                 }
-                Section("App") {
-                    Label("Settings", systemImage: "gearshape")
-                        .badge(updater.latestAvailableRelease != nil ? "1" : nil)
-                        .tag(SidebarSection.settings)
-                }
                 Section("Help") {
                     Label("How It Works", systemImage: "questionmark.circle")
                         .tag(SidebarSection.howItWorks)
                 }
             }
             .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                        .opacity(0.5)
+                    Button {
+                        ui.section = .settings
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "gearshape")
+                                .font(.body)
+                                .foregroundStyle(ui.section == .settings ? Color.accentColor : .secondary)
+                            Text("Settings")
+                                .font(.body.weight(ui.section == .settings ? .medium : .regular))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if updater.latestAvailableRelease != nil {
+                                Text("1")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.accentColor))
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(ui.section == .settings ? Color.primary.opacity(0.1) : Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                }
+            }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
         } detail: {
             VStack(spacing: 0) {
@@ -128,7 +160,7 @@ struct MainContentView: View {
     }
 
     private var sidebarSelection: Binding<SidebarSection?> {
-        Binding(get: { ui.section }, set: { if let value = $0 { ui.section = value } })
+        Binding(get: { ui.section == .settings ? nil : ui.section }, set: { if let value = $0 { ui.section = value } })
     }
 
     private var deleteTitle: String {
