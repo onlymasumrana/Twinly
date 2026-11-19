@@ -14,7 +14,8 @@ struct NewAppProfileSheet: View {
     @State private var buildError: String?
     @State private var isCreating = false
     @State private var isDropTargeted = false
-    @State private var installed: [InstalledApp] = []
+    @State private var appSearch = ""
+    @State private var allApps: [InstalledApp] = []
 
     @State private var name = "Work"
     @State private var badgeText = "W"
@@ -49,7 +50,10 @@ struct NewAppProfileSheet: View {
         .frame(width: 560)
         .frame(minHeight: 460)
         .onAppear {
-            installed = InstalledApp.load()
+            Task {
+                let apps = await Task.detached { InstalledApp.loadAll() }.value
+                allApps = apps
+            }
             if let prefill = prefill, analysis == nil, inspectingURL == nil { inspect(prefill) }
         }
     }
@@ -57,49 +61,98 @@ struct NewAppProfileSheet: View {
     // MARK: Step 1
 
     private var stepOne: some View {
-        VStack(spacing: 16) {
-            Spacer(minLength: 0)
+        VStack(spacing: 14) {
             if let url = inspectingURL {
+                Spacer(minLength: 0)
                 ProgressView("Checking \(url.deletingPathExtension().lastPathComponent)…")
+                Spacer(minLength: 0)
             } else {
-                VStack(spacing: 10) {
+                searchBar
+                appList
+
+                HStack(spacing: 6) {
                     Image(systemName: "arrow.down.app")
-                        .font(.system(size: 36))
                         .foregroundStyle(isDropTargeted ? Color.accentColor : Color.secondary)
-                    Text("Drop an app here").font(.headline)
-                    Text("or").font(.callout).foregroundStyle(.secondary)
-                    Button("Choose App…") {
+                    Text("Drop any .app here, or").font(.callout).foregroundStyle(.secondary)
+                    Button("Choose from Finder…") {
                         if let url = AppPicker.chooseApp() { inspect(url) }
                     }
-                    .controlSize(.large)
+                    .buttonStyle(.link)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
+                .padding(.vertical, 10)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.35),
                                       style: StrokeStyle(lineWidth: 1.5, dash: [6]))
                 )
-                .padding(.horizontal, 20)
-                .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-                    AppPicker.loadApp(from: providers) { inspect($0) }
-                }
 
-                if !installed.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Installed apps").font(.callout).foregroundStyle(.secondary)
-                        QuickAddRow(apps: installed) { inspect($0) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                }
                 if let inspectError = inspectError {
-                    ErrorRow(text: inspectError).padding(.horizontal, 20)
+                    ErrorRow(text: inspectError)
                 }
             }
-            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 320)
+        .contentShape(Rectangle())
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            AppPicker.loadApp(from: providers) { inspect($0) }
+        }
+    }
+
+    private var filteredApps: [InstalledApp] {
+        let q = appSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty { return allApps }
+        return allApps.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search installed apps…", text: $appSearch)
+                .textFieldStyle(.plain)
+                .onSubmit { if let first = filteredApps.first { inspect(first.url) } }
+            if !appSearch.isEmpty {
+                Button { appSearch = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .textBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    private var appList: some View {
+        ScrollView {
+            if filteredApps.isEmpty {
+                Text(allApps.isEmpty ? "Loading apps…" : "No installed apps match \"\(appSearch)\"")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredApps) { app in
+                        AppPickerRow(app: app) { inspect(app.url) }
+                    }
+                }
+                .padding(4)
+            }
+        }
+        .frame(height: 210)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
     }
 
     // MARK: Step 2

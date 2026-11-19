@@ -37,6 +37,68 @@ struct InstalledApp: Identifiable {
     static func load() -> [InstalledApp] {
         Array(KnownApps.installed().prefix(8).map(InstalledApp.init(url:)))
     }
+
+    /// All installed apps: known apps first, then every other .app bundle alphabetically.
+    static func loadAll() -> [InstalledApp] {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        let twinlyDir = home.appendingPathComponent("Applications/Twinly").standardizedFileURL.path
+        let roots = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
+
+        var discovered: [URL] = []
+        for root in roots {
+            guard let items = try? fm.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
+            for item in items {
+                let std = item.standardizedFileURL
+                if std.path == twinlyDir || item.lastPathComponent == "Twinly.app" { continue }
+                if item.pathExtension.lowercased() == "app" { discovered.append(item) }
+            }
+        }
+
+        var seen = Set<String>()
+        var result: [InstalledApp] = []
+        for url in KnownApps.installed() where seen.insert(url.path).inserted {
+            result.append(InstalledApp(url: url))
+        }
+        let rest = discovered
+            .filter { !seen.contains($0.path) }
+            .sorted { $0.deletingPathExtension().lastPathComponent
+                .localizedCaseInsensitiveCompare($1.deletingPathExtension().lastPathComponent) == .orderedAscending }
+        for url in rest where seen.insert(url.path).inserted {
+            result.append(InstalledApp(url: url))
+        }
+        return result
+    }
+}
+
+struct AppPickerRow: View {
+    let app: InstalledApp
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
+                    .resizable().frame(width: 28, height: 28)
+                Text(app.name).font(.body.weight(.medium)).lineLimit(1)
+                Spacer()
+                if hovering {
+                    Text("Select").font(.callout).foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(hovering ? Color.accentColor.opacity(0.12) : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
 }
 
 struct QuickAddRow: View {
