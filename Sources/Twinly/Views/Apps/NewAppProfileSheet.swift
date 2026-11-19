@@ -16,6 +16,7 @@ struct NewAppProfileSheet: View {
     @State private var isDropTargeted = false
     @State private var appSearch = ""
     @State private var isSearchOpen = false
+    @State private var canOpenOnFocus = false
     @FocusState private var searchFocused: Bool
     @State private var allApps: [InstalledApp] = []
 
@@ -52,6 +53,9 @@ struct NewAppProfileSheet: View {
         .frame(width: 560)
         .frame(minHeight: 460)
         .onAppear {
+            isSearchOpen = false
+            DispatchQueue.main.async { searchFocused = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { canOpenOnFocus = true }
             Task {
                 let apps = await Task.detached { InstalledApp.loadAll() }.value
                 allApps = apps
@@ -133,11 +137,14 @@ struct NewAppProfileSheet: View {
             TextField("Search installed apps…", text: $appSearch)
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
+                .onChange(of: searchFocused) { focused in
+                    if focused && canOpenOnFocus { isSearchOpen = true }
+                }
                 .onChange(of: appSearch) { new in
                     if !new.isEmpty { isSearchOpen = true }
                 }
                 .onSubmit { if let first = filteredApps.first { closeSearch(); inspect(first.url) } }
-            if !appSearch.isEmpty {
+            if isSearchOpen || !appSearch.isEmpty {
                 Button { closeSearch() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
@@ -147,7 +154,13 @@ struct NewAppProfileSheet: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded { isSearchOpen = true })
+        .overlay {
+            if !isSearchOpen {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { isSearchOpen = true; searchFocused = true }
+            }
+        }
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .textBackgroundColor))
