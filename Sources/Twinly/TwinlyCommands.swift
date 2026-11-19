@@ -56,7 +56,14 @@ struct TwinlyCommands: Commands {
                 .disabled(!ui.hasSelection)
         }
 
-        CommandGroup(after: .sidebar) {
+        CommandGroup(replacing: .sidebar) {
+            Button(ui.showSidebar ? "Hide Sidebar" : "Show Sidebar") {
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.88)) {
+                    ui.showSidebar.toggle()
+                }
+            }
+            .keyboardShortcut("s", modifiers: [.control, .command])
+            Divider()
             Button("Apps") { ui.section = .apps }
                 .keyboardShortcut("1")
             Button("Command Line") { ui.section = .commandLine }

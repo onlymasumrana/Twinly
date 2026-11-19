@@ -7,85 +7,45 @@ struct MainContentView: View {
     @ObservedObject private var updater = UpdateChecker.shared
     @State private var bannerDismissed = false
     @State private var loadErrorAlert: String?
-    @State private var settingsHovered = false
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: sidebarSelection) {
-                Section("Library") {
-                    Label("Apps", systemImage: "square.on.square")
-                        .lineLimit(1)
-                        .badge(store.profiles.count)
-                        .tag(SidebarSection.apps)
-                    Label("Command Line", systemImage: "terminal")
-                        .lineLimit(1)
-                        .badge(store.cliProfiles.count)
-                        .tag(SidebarSection.commandLine)
-                }
-                Section("Help") {
-                    Label("How It Works", systemImage: "questionmark.circle")
-                        .lineLimit(1)
-                        .tag(SidebarSection.howItWorks)
-                }
-            }
-            .listStyle(.sidebar)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
+        NavigationStack {
+            HStack(spacing: 0) {
+                sidebarView
+                    .frame(width: 200)
+                    .frame(width: ui.showSidebar ? 200 : 0, alignment: .trailing)
+                    .clipped()
+                    .allowsHitTesting(ui.showSidebar)
+
+                if ui.showSidebar {
                     Divider()
-                        .opacity(0.5)
-                    Button {
-                        withAnimation(.easeOut(duration: 0.14)) { ui.section = .settings }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "gearshape")
-                                .font(.body)
-                                .foregroundStyle(ui.section == .settings ? Color.accentColor : .secondary)
-                            Text("Settings")
-                                .font(.body.weight(ui.section == .settings ? .medium : .regular))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                            Spacer(minLength: 0)
-                            if updater.latestAvailableRelease != nil {
-                                Text("1")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.accentColor))
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(ui.section == .settings
-                                      ? Color.accentColor.opacity(0.15)
-                                      : (settingsHovered ? Color.primary.opacity(0.06) : Color.clear))
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hover in
-                        withAnimation(.easeOut(duration: 0.14)) { settingsHovered = hover }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
                 }
-                .frame(height: 52)
-                .clipped()
-            }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
-        } detail: {
-            VStack(spacing: 0) {
-                if let release = updater.latestAvailableRelease, !bannerDismissed, ui.section != .settings {
-                    updateBanner(release)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+
+                VStack(spacing: 0) {
+                    if let release = updater.latestAvailableRelease, !bannerDismissed, ui.section != .settings {
+                        updateBanner(release)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    detailContent
                 }
-                detailContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(.spring(response: 0.28, dampingFraction: 0.82), value: bannerDismissed)
             }
+            .animation(.spring(response: 0.26, dampingFraction: 0.88), value: ui.showSidebar)
             .navigationTitle(sectionTitle)
-            .animation(.spring(response: 0.28, dampingFraction: 0.82), value: bannerDismissed)
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.88)) {
+                            ui.showSidebar.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                    }
+                    .help(ui.showSidebar ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
+                    .accessibilityLabel(ui.showSidebar ? "Hide Sidebar" : "Show Sidebar")
+                }
+            }
         }
         .sheet(item: $ui.sheet) { route in
             switch route {
@@ -184,8 +144,73 @@ struct MainContentView: View {
         .background(Color.blue)
     }
 
-    private var sidebarSelection: Binding<SidebarSection?> {
-        Binding(get: { ui.section == .settings ? nil : ui.section }, set: { if let value = $0 { ui.section = value } })
+    private var sidebarView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Library")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 4)
+
+                SidebarRow(
+                    title: "Apps",
+                    systemImage: "square.on.square",
+                    badge: store.profiles.count > 0 ? "\(store.profiles.count)" : nil,
+                    isSelected: ui.section == .apps
+                ) {
+                    ui.section = .apps
+                }
+
+                SidebarRow(
+                    title: "Command Line",
+                    systemImage: "terminal",
+                    badge: store.cliProfiles.count > 0 ? "\(store.cliProfiles.count)" : nil,
+                    isSelected: ui.section == .commandLine
+                ) {
+                    ui.section = .commandLine
+                }
+
+                Text("Help")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 14)
+                    .padding(.bottom, 4)
+
+                SidebarRow(
+                    title: "How It Works",
+                    systemImage: "questionmark.circle",
+                    badge: nil,
+                    isSelected: ui.section == .howItWorks
+                ) {
+                    ui.section = .howItWorks
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 12)
+
+            Spacer(minLength: 0)
+
+            Divider()
+                .opacity(0.5)
+
+            SidebarRow(
+                title: "Settings",
+                systemImage: "gearshape",
+                badge: updater.latestAvailableRelease != nil ? "1" : nil,
+                accentBadge: true,
+                isSelected: ui.section == .settings
+            ) {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    ui.section = .settings
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(VisualEffectBackground(material: .sidebar, blendingMode: .behindWindow))
     }
 
     private var deleteTitle: String {
@@ -203,5 +228,59 @@ struct MainContentView: View {
         guard let message = store.loadError, ui.alert == nil else { return }
         ui.alert = AlertItem(title: "Profiles Couldn't Be Read", message: message)
         store.loadError = nil
+    }
+}
+
+private struct SidebarRow: View {
+    let title: String
+    let systemImage: String
+    let badge: String?
+    var accentBadge: Bool = false
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.body)
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.body.weight(isSelected ? .medium : .regular))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if let badge = badge {
+                    Text(badge)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(accentBadge ? .white : .secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule().fill(accentBadge ? Color.accentColor : Color.secondary.opacity(0.2))
+                        )
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(
+                        isSelected
+                            ? Color.accentColor.opacity(0.18)
+                            : (isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover in
+            withAnimation(.easeOut(duration: 0.14)) {
+                isHovered = hover
+            }
+        }
     }
 }

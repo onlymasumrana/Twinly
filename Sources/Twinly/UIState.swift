@@ -45,6 +45,7 @@ final class UIState: ObservableObject {
     let store: ProfileStore
 
     @Published var section: SidebarSection = .apps
+    @Published var showSidebar: Bool = true
     @Published var sheet: SheetRoute?
     @Published var selection: Set<UUID> = []
     @Published var cliSelection: Set<UUID> = []
