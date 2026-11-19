@@ -15,6 +15,8 @@ struct NewAppProfileSheet: View {
     @State private var isCreating = false
     @State private var isDropTargeted = false
     @State private var appSearch = ""
+    @State private var isSearchOpen = false
+    @FocusState private var searchFocused: Bool
     @State private var allApps: [InstalledApp] = []
 
     @State private var name = "Work"
@@ -68,24 +70,15 @@ struct NewAppProfileSheet: View {
                 Spacer(minLength: 0)
             } else {
                 searchBar
-                appList
-
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down.app")
-                        .foregroundStyle(isDropTargeted ? Color.accentColor : Color.secondary)
-                    Text("Drop any .app here, or").font(.callout).foregroundStyle(.secondary)
-                    Button("Choose from Finder…") {
-                        if let url = AppPicker.chooseApp() { inspect(url) }
+                ZStack(alignment: .top) {
+                    dropZone
+                    if isSearchOpen {
+                        appList
+                            .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+                            .transition(.opacity)
                     }
-                    .buttonStyle(.link)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.35),
-                                      style: StrokeStyle(lineWidth: 1.5, dash: [6]))
-                )
+                .frame(maxHeight: .infinity)
 
                 if let inspectError = inspectError {
                     ErrorRow(text: inspectError)
@@ -101,6 +94,33 @@ struct NewAppProfileSheet: View {
         }
     }
 
+    private func closeSearch() {
+        appSearch = ""
+        isSearchOpen = false
+        searchFocused = false
+    }
+
+    private var dropZone: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "arrow.down.app")
+                .font(.system(size: 36))
+                .foregroundStyle(isDropTargeted ? Color.accentColor : Color.secondary)
+            Text("Drop an app here").font(.headline)
+            Text("or").font(.callout).foregroundStyle(.secondary)
+            Button("Choose App…") {
+                if let url = AppPicker.chooseApp() { inspect(url) }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.35),
+                              style: StrokeStyle(lineWidth: 1.5, dash: [6]))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { closeSearch() }
+    }
+
     private var filteredApps: [InstalledApp] {
         let q = appSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         if q.isEmpty { return allApps }
@@ -112,9 +132,13 @@ struct NewAppProfileSheet: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("Search installed apps…", text: $appSearch)
                 .textFieldStyle(.plain)
-                .onSubmit { if let first = filteredApps.first { inspect(first.url) } }
+                .focused($searchFocused)
+                .onChange(of: appSearch) { new in
+                    if !new.isEmpty { isSearchOpen = true }
+                }
+                .onSubmit { if let first = filteredApps.first { closeSearch(); inspect(first.url) } }
             if !appSearch.isEmpty {
-                Button { appSearch = "" } label: {
+                Button { closeSearch() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -122,6 +146,8 @@ struct NewAppProfileSheet: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { isSearchOpen = true })
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .textBackgroundColor))
@@ -142,7 +168,7 @@ struct NewAppProfileSheet: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(filteredApps) { app in
-                        AppPickerRow(app: app) { inspect(app.url) }
+                        AppPickerRow(app: app) { closeSearch(); inspect(app.url) }
                     }
                 }
                 .padding(4)
@@ -150,6 +176,10 @@ struct NewAppProfileSheet: View {
         }
         .frame(height: 210)
         .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        )
+        .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
         )
