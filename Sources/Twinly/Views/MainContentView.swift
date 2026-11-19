@@ -70,6 +70,17 @@ struct MainContentView: View {
             case .cli: Text("Deleting the config signs you out of this profile. This can't be undone.")
             }
         }
+        .confirmationDialog(
+            ui.pendingReset.map { "Reset “\($0.appName) (\($0.name))”?" } ?? "",
+            isPresented: Binding(get: { ui.pendingReset != nil }, set: { if !$0 { ui.pendingReset = nil } }),
+            titleVisibility: .visible,
+            presenting: ui.pendingReset
+        ) { profile in
+            Button("Reset Data", role: .destructive) { ui.performReset(profile) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This signs you out and clears all data for this profile. The shortcut itself is kept.")
+        }
         .alert(
             ui.alert?.title ?? "",
             isPresented: Binding(get: { ui.alert != nil }, set: { if !$0 { ui.alert = nil } }),

@@ -110,6 +110,7 @@ public final class ProfileStore: ObservableObject {
             badgeText: profile.badgeText,
             customArgs: profile.customArgs,
             customEnv: profile.customEnv,
+            separateDockIcon: profile.separateDockIcon,
             existing: profile
         )
         onMain { self.updateProfile(rebuilt) }
@@ -133,7 +134,8 @@ public final class ProfileStore: ObservableObject {
             badgeColorHex: profile.badgeColorHex,
             badgeText: text,
             customArgs: profile.customArgs,
-            customEnv: profile.customEnv
+            customEnv: profile.customEnv,
+            separateDockIcon: profile.separateDockIcon
         )
         onMain { self.addProfile(built) }
         return built
@@ -182,6 +184,47 @@ public final class ProfileStore: ObservableObject {
         }
     }
 
+    /// Asks a running profile to quit. Returns true if anything was signalled.
+    @discardableResult
+    public func stopProfile(_ profile: Profile) -> Bool {
+        var signalled = false
+        for app in NSWorkspace.shared.runningApplications where app.bundleURL?.path == profile.wrapperAppPath {
+            app.terminate()
+            signalled = true
+        }
+        let lock = (profile.profileDirectory as NSString).appendingPathComponent("SingletonLock")
+        if let target = try? FileManager.default.destinationOfSymbolicLink(atPath: lock),
+           let pidString = target.split(separator: "-").last,
+           let pid = Int32(pidString), pid > 0, kill(pid, 0) == 0 {
+            kill(pid, SIGTERM)
+            signalled = true
+        }
+        return signalled
+    }
+
+    /// Wipes a profile's data (sign-out) but keeps the shortcut.
+    public func resetProfileData(id: UUID) throws {
+        guard let idx = profiles.firstIndex(where: { $0.id == id }) else { throw StoreError.notFound }
+        let profile = profiles[idx]
+        let fm = FileManager.default
+        if ProfileStatus.isRunning(profile) {
+            stopProfile(profile)
+            Thread.sleep(forTimeInterval: 1.0)
+        }
+        if fm.fileExists(atPath: profile.profileDirectory) {
+            try fm.removeItem(atPath: profile.profileDirectory)
+        }
+        let dir = URL(fileURLWithPath: profile.profileDirectory)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        if profile.strategy == .genericNonSandboxed {
+            for sub in ["Application Support", "Preferences", "Caches"] {
+                try fm.createDirectory(at: dir.appendingPathComponent("home/Library/\(sub)"), withIntermediateDirectories: true)
+            }
+        }
+        profiles[idx].lastLaunchedAt = nil
+        saveProfiles()
+    }
+
     /// Rebuilds every shortcut, keeping each profile's id and data. Blocking; call off the main thread.
     public func rebuildAllWrappers(targetDir: URL? = nil, dataDir: URL? = nil) -> RepairResult {
         var result = RepairResult()
@@ -206,6 +249,7 @@ public final class ProfileStore: ObservableObject {
                     customEnv: profile.customEnv,
                     customTargetDir: targetDir,
                     customProfilesDataDir: dataDir,
+                    separateDockIcon: profile.separateDockIcon,
                     existing: profile
                 )
                 updated.append(rebuilt)

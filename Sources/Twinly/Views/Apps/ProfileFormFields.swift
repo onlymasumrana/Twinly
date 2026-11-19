@@ -8,6 +8,7 @@ struct ProfileFormFields: View {
     @Binding var badgeText: String
     @Binding var arguments: String
     @Binding var environment: String
+    @Binding var separateDockIcon: Bool
     let nameError: String?
     let envError: String?
     @State private var showAdvanced = false
@@ -27,6 +28,10 @@ struct ProfileFormFields: View {
                 Text("Up to 3 characters or an emoji.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
+
+        Section {
+            Toggle("Separate Dock icon while running (APFS zero-space clone)", isOn: $separateDockIcon)
         }
 
         Section {

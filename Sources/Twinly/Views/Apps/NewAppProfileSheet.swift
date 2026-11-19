@@ -21,6 +21,7 @@ struct NewAppProfileSheet: View {
     @State private var badgeHex = "#3B82F6"
     @State private var arguments = ""
     @State private var environment = ""
+    @State private var separateDockIcon = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -146,7 +147,7 @@ struct NewAppProfileSheet: View {
             } else {
                 ProfileFormFields(
                     name: $name, badgeHex: $badgeHex, badgeText: $badgeText,
-                    arguments: $arguments, environment: $environment,
+                    arguments: $arguments, environment: $environment, separateDockIcon: $separateDockIcon,
                     nameError: nameError, envError: envError
                 )
             }
@@ -236,13 +237,14 @@ struct NewAppProfileSheet: View {
         let profileName = trimmedName
         let hex = badgeHex
         let text = badgeText
+        let separate = separateDockIcon
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 Result {
                     try WrapperBuilder.shared.buildWrapper(
                         analysis: analysis, profileName: profileName,
                         badgeColorHex: hex, badgeText: text,
-                        customArgs: args, customEnv: env)
+                        customArgs: args, customEnv: env, separateDockIcon: separate)
                 }
             }.value
             await MainActor.run {

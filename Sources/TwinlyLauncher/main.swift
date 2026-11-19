@@ -11,6 +11,7 @@ struct LauncherConfig: Codable {
     var profileDirectory: String
     var arguments: [String]
     var environment: [String: String]
+    var separateDockIcon: Bool?
 }
 
 func openTwinly() {
@@ -110,6 +111,9 @@ func main() {
         if origLower.contains("chrome") || origLower.contains("brave") || origLower.contains("edge") || origLower.contains("chromium") {
             launchArgs.append("--profile-directory=Default")
         }
+    } else if config.strategy == "firefoxGecko" {
+        try? fileManager.createDirectory(at: profileDirURL, withIntermediateDirectories: true)
+        launchArgs.append(contentsOf: ["-no-remote", "-profile", config.profileDirectory])
     } else if config.strategy == "genericNonSandboxed" {
         let isolatedHome = profileDirURL.appendingPathComponent("home")
         let appSupport = isolatedHome.appendingPathComponent("Library/Application Support")
@@ -130,6 +134,22 @@ func main() {
     let timestampFile = profileDirURL.appendingPathComponent(".last_launched")
     let nowString = ISO8601DateFormatter().string(from: Date())
     try? nowString.write(to: timestampFile, atomically: true, encoding: .utf8)
+
+    // Separate Dock icon mode: this bundle is an APFS clone of the original app whose real
+    // executable was renamed to `<exec>.twinly-orig`. execv replaces this process in place, so the
+    // PID and bundle path stay ours and the Dock keeps the badged icon and "App (Profile)" name.
+    let currentExec = Bundle.main.executablePath ?? CommandLine.arguments[0]
+    let origExec = currentExec + ".twinly-orig"
+    if fileManager.isExecutableFile(atPath: origExec) {
+        for (key, val) in launchEnv { setenv(key, val, 1) }
+        let argv = [origExec] + launchArgs
+        var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
+        cArgs.append(nil)
+        execv(origExec, &cArgs)
+        let err = String(cString: strerror(errno))
+        showAlert(title: "Couldn't Open “\(originalAppURL.deletingPathExtension().lastPathComponent)”", message: err)
+        exit(1)
+    }
 
     // Attempt launch using NSWorkspace.OpenConfiguration
     let openConfig = NSWorkspace.OpenConfiguration()

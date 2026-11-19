@@ -51,6 +51,7 @@ final class UIState: ObservableObject {
     @Published var alert: AlertItem?
     @Published var pendingDelete: DeleteRequest?
     @Published var isRepairing = false
+    @Published var pendingReset: Profile?
 
     init(store: ProfileStore) {
         self.store = store
@@ -85,6 +86,18 @@ final class UIState: ObservableObject {
 
     func open(ids: Set<UUID>) {
         store.profiles.filter { ids.contains($0.id) }.forEach(open)
+    }
+
+    func stop(_ profile: Profile) { store.stopProfile(profile) }
+
+    func requestReset(_ profile: Profile) { pendingReset = profile }
+
+    func performReset(_ profile: Profile) {
+        let store = self.store
+        DispatchQueue.global(qos: .userInitiated).async {
+            do { try store.resetProfileData(id: profile.id) }
+            catch { DispatchQueue.main.async { self.show(error: error, title: "Couldn't Reset “\(profile.appName) (\(profile.name))”") } }
+        }
     }
 
     func edit(_ profile: Profile) { sheet = .editApp(profile) }

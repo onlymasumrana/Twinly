@@ -557,6 +557,57 @@ func runAllTests() {
         print("❌ Running detector test failed: \(error)")
     }
 
+    // 17. Firefox / Gecko, Separate Dock Icon, Reset Data
+    print("\n--- Test: Gecko / Separate Dock Icon / Reset ---")
+    do {
+        let ff = try createMockAppBundle(in: tempDir, name: "FoxLike", isElectron: false)
+        try Data().write(to: ff.appendingPathComponent("Contents/Resources/omni.ja"))
+        let ffAnalysis = try AppInspector.shared.inspect(appURL: ff)
+        assertEqual(ffAnalysis.strategy, .firefoxGecko, "omni.ja => firefoxGecko")
+        assertEqual(AppStrategy.firefoxGecko.displayName, "Firefox-based")
+
+        let mock = try createMockAppBundle(in: tempDir, name: "CloneMe", isElectron: true)
+        let plistURL = mock.appendingPathComponent("Contents/Info.plist")
+        var plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: plistURL), format: nil) as! [String: Any]
+        plist["CFBundleIconName"] = "AppIcon"
+        plist["ElectronAsarIntegrity"] = ["x": "y"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
+        let analysis = try AppInspector.shared.inspect(appURL: mock)
+        let apps = tempDir.appendingPathComponent("cloneApps")
+        let data = tempDir.appendingPathComponent("cloneData")
+        let profile = try WrapperBuilder.shared.buildWrapper(analysis: analysis, profileName: "Work", badgeColorHex: "#EF4444", badgeText: "W", customTargetDir: apps, customProfilesDataDir: data, separateDockIcon: true)
+        let wrapper = URL(fileURLWithPath: profile.wrapperAppPath)
+        let macos = wrapper.appendingPathComponent("Contents/MacOS")
+        assertTrue(FileManager.default.fileExists(atPath: macos.appendingPathComponent("CloneMe.twinly-orig").path), "orig renamed")
+        let launcherSize = (try? FileManager.default.attributesOfItem(atPath: macos.appendingPathComponent("CloneMe").path)[.size] as? Int) ?? 0
+        let origSize = (try? FileManager.default.attributesOfItem(atPath: macos.appendingPathComponent("CloneMe.twinly-orig").path)[.size] as? Int) ?? 0
+        assertTrue(launcherSize != origSize && launcherSize > 1000, "exec is launcher")
+        let newPlist = try PropertyListSerialization.propertyList(from: Data(contentsOf: wrapper.appendingPathComponent("Contents/Info.plist")), format: nil) as! [String: Any]
+        assertTrue(newPlist["CFBundleIconName"] == nil, "icon name removed")
+        assertEqual(newPlist["CFBundleDisplayName"] as? String, "CloneMe (Work)")
+        assertEqual(newPlist["CFBundleIconFile"] as? String, "AppIcon")
+        assertNotNil(newPlist["ElectronAsarIntegrity"], "original keys kept")
+        assertEqual(newPlist["TwinlyProfileId"] as? String, profile.id.uuidString)
+        let cfg = try JSONDecoder().decode(LauncherConfig.self, from: Data(contentsOf: wrapper.appendingPathComponent("Contents/Resources/twinly.json")))
+        assertEqual(cfg.separateDockIcon, true)
+        assertEqual(profile.separateDockIcon, true)
+
+        // Reset data
+        let store = ProfileStore(baseStorageDir: tempDir.appendingPathComponent("resetStore"))
+        store.addProfile(profile)
+        let junk = URL(fileURLWithPath: profile.profileDirectory).appendingPathComponent("Cookies")
+        try "secret".write(to: junk, atomically: true, encoding: .utf8)
+        try store.resetProfileData(id: profile.id)
+        assertFalse(FileManager.default.fileExists(atPath: junk.path), "data wiped")
+        var isDir: ObjCBool = false
+        assertTrue(FileManager.default.fileExists(atPath: profile.profileDirectory, isDirectory: &isDir) && isDir.boolValue, "dir recreated")
+        assertTrue(FileManager.default.fileExists(atPath: wrapper.path), "wrapper kept")
+        assertFalse(store.stopProfile(profile), "nothing to stop")
+    } catch {
+        failedTests += 1
+        print("❌ Gecko/clone/reset test failed: \(error)")
+    }
+
     // Summary
     print("\n========================================")
     print(" Test Run Complete")

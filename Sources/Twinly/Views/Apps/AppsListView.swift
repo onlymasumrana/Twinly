@@ -130,6 +130,7 @@ struct AppsListView: View {
 struct AppProfileMenuItems: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var ui: UIState
+    @EnvironmentObject var monitor: RunningMonitor
     let ids: Set<UUID>
 
     private var profiles: [Profile] { store.profiles.filter { ids.contains($0.id) } }
@@ -138,6 +139,9 @@ struct AppProfileMenuItems: View {
         if let first = profiles.first {
             let single = profiles.count == 1
             Button("Open") { ui.open(ids: ids) }
+            if single && monitor.isRunning(first) {
+                Button("Stop") { ui.stop(first) }
+            }
             if single {
                 Button("Edit…") { ui.edit(first) }
             }
@@ -147,6 +151,9 @@ struct AppProfileMenuItems: View {
                 Button("Show Shortcut in Finder") { ui.showShortcut(first) }
                 Button("Show Data Folder") { ui.showData(first) }
                 Divider()
+            }
+            if single {
+                Button("Reset Data…", role: .destructive) { ui.requestReset(first) }
             }
             Button("Delete…", role: .destructive) { ui.requestDelete(apps: profiles) }
         }

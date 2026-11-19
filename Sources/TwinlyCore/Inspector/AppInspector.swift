@@ -48,6 +48,8 @@ public final class AppInspector {
         // Detect Electron / Chromium indicators
         let isElectronOrChromium = detectElectronOrChromium(appURL: appURL, frameworks: frameworks)
 
+        let isGecko = detectFirefoxGecko(appURL: appURL)
+
         let strategy: AppStrategy
         let explanation: String
         var warning: String? = nil
@@ -56,6 +58,9 @@ public final class AppInspector {
             strategy = .sandboxedUnsupported
             explanation = "This application runs inside the macOS App Sandbox. macOS locks sandbox data containers to the exact bundle identifier and developer team ID, which prevents isolated data instances without modifying or resigning the app."
             warning = "Sandboxed apps (Mac App Store apps) are not supported because their container directories are strictly governed by macOS Sandbox entitlements tied to the bundle ID."
+        } else if isGecko && !isElectronOrChromium {
+            strategy = .firefoxGecko
+            explanation = "Detected Firefox / Gecko browser. Twinly will launch isolated instances with a dedicated Firefox profile folder (-profile, -no-remote), keeping logins, tabs and settings separate."
         } else if isElectronOrChromium {
             strategy = .electronChromium
             explanation = "Detected Electron / Chromium architecture. Twinly will launch isolated instances with a dedicated --user-data-dir parameter, giving it completely separated cookies, sessions, cache, and preferences."
@@ -86,6 +91,15 @@ public final class AppInspector {
             return []
         }
         return contents.filter { $0.hasSuffix(".framework") || $0.hasSuffix(".app") || $0.hasSuffix(".dylib") }
+    }
+
+    public func detectFirefoxGecko(appURL: URL) -> Bool {
+        let fm = FileManager.default
+        let c = appURL.appendingPathComponent("Contents")
+        for rel in ["MacOS/firefox", "MacOS/thunderbird", "MacOS/zen", "Resources/application.ini", "Resources/omni.ja"] {
+            if fm.fileExists(atPath: c.appendingPathComponent(rel).path) { return true }
+        }
+        return false
     }
 
     public func detectElectronOrChromium(appURL: URL, frameworks: [String]) -> Bool {

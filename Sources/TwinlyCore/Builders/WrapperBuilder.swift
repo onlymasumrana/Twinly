@@ -74,8 +74,10 @@ public final class WrapperBuilder {
         customEnv: [String: String] = [:],
         customTargetDir: URL? = nil,
         customProfilesDataDir: URL? = nil,
+        separateDockIcon: Bool? = nil,
         existing: Profile? = nil
     ) throws -> Profile {
+        let useClone = (separateDockIcon ?? existing?.separateDockIcon ?? false) && analysis.strategy != .sandboxedUnsupported
         guard analysis.strategy != .sandboxedUnsupported else {
             throw WrapperBuilderError.unsupportedApp(analysis.warning ?? "Sandboxed apps cannot be isolated.")
         }
@@ -120,39 +122,62 @@ public final class WrapperBuilder {
         let macosURL = contentsURL.appendingPathComponent("MacOS")
         let resourcesURL = contentsURL.appendingPathComponent("Resources")
 
-        try fileManager.createDirectory(at: macosURL, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
-
         let launcherSource = try locateLauncherBinary()
-        let launcherTarget = macosURL.appendingPathComponent("launcher")
-        try fileManager.copyItem(at: launcherSource, to: launcherTarget)
-
-        var perms = try fileManager.attributesOfItem(atPath: launcherTarget.path)
-        perms[.posixPermissions] = 0o755
-        try fileManager.setAttributes(perms, ofItemAtPath: launcherTarget.path)
-
         let bundleId = "io.twinly.\(sanitizeBundleId(analysis.bundleIdentifier)).\(profileId.uuidString.prefix(8).lowercased())"
+        let displayName = "\(analysis.appName) (\(profileName))"
 
-        let infoPlist: [String: Any] = [
-            "CFBundleDevelopmentRegion": "en",
-            "CFBundleExecutable": "launcher",
-            "CFBundleIconFile": "AppIcon",
-            "CFBundleIdentifier": bundleId,
-            "CFBundleInfoDictionaryVersion": "6.0",
-            "CFBundleName": "\(analysis.appName) (\(profileName))",
-            "CFBundleDisplayName": "\(analysis.appName) (\(profileName))",
-            "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "1.0",
-            "CFBundleVersion": "1",
-            "LSMinimumSystemVersion": "13.0",
-            "LSUIElement": false,
-            "NSHighResolutionCapable": true,
-            "TwinlyProfileId": profileId.uuidString,
-            "TwinlyOriginalApp": analysis.appURL.path
-        ]
+        if useClone {
+            try cloneOriginal(analysis.appURL, to: tmpURL)
+            let execName = URL(fileURLWithPath: analysis.executablePath).lastPathComponent
+            let execURL = macosURL.appendingPathComponent(execName)
+            let origURL = macosURL.appendingPathComponent("\(execName).twinly-orig")
+            if !fileManager.fileExists(atPath: origURL.path) {
+                try fileManager.moveItem(at: execURL, to: origURL)
+            }
+            if fileManager.fileExists(atPath: execURL.path) { try fileManager.removeItem(at: execURL) }
+            try fileManager.copyItem(at: launcherSource, to: execURL)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: execURL.path)
 
-        let plistData = try PropertyListSerialization.data(fromPropertyList: infoPlist, format: .xml, options: 0)
-        try plistData.write(to: contentsURL.appendingPathComponent("Info.plist"))
+            let plistURL = contentsURL.appendingPathComponent("Info.plist")
+            let data = try Data(contentsOf: plistURL)
+            var plist = (try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]) ?? [:]
+            plist["CFBundleIdentifier"] = bundleId
+            plist["CFBundleName"] = displayName
+            plist["CFBundleDisplayName"] = displayName
+            plist["CFBundleIconFile"] = "AppIcon"
+            plist.removeValue(forKey: "CFBundleIconName")
+            plist["TwinlyProfileId"] = profileId.uuidString
+            plist["TwinlyOriginalApp"] = analysis.appURL.path
+            try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
+        } else {
+            try fileManager.createDirectory(at: macosURL, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+
+            let launcherTarget = macosURL.appendingPathComponent("launcher")
+            try fileManager.copyItem(at: launcherSource, to: launcherTarget)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcherTarget.path)
+
+            let infoPlist: [String: Any] = [
+                "CFBundleDevelopmentRegion": "en",
+                "CFBundleExecutable": "launcher",
+                "CFBundleIconFile": "AppIcon",
+                "CFBundleIdentifier": bundleId,
+                "CFBundleInfoDictionaryVersion": "6.0",
+                "CFBundleName": displayName,
+                "CFBundleDisplayName": displayName,
+                "CFBundlePackageType": "APPL",
+                "CFBundleShortVersionString": "1.0",
+                "CFBundleVersion": "1",
+                "LSMinimumSystemVersion": "13.0",
+                "LSUIElement": false,
+                "NSHighResolutionCapable": true,
+                "TwinlyProfileId": profileId.uuidString,
+                "TwinlyOriginalApp": analysis.appURL.path
+            ]
+            let plistData = try PropertyListSerialization.data(fromPropertyList: infoPlist, format: .xml, options: 0)
+            try plistData.write(to: contentsURL.appendingPathComponent("Info.plist"))
+        }
 
         let config = LauncherConfig(
             version: 1,
@@ -163,7 +188,8 @@ public final class WrapperBuilder {
             strategy: analysis.strategy.rawValue,
             profileDirectory: profileDataDir.path,
             arguments: customArgs,
-            environment: customEnv
+            environment: customEnv,
+            separateDockIcon: useClone ? true : nil
         )
 
         let encoder = JSONEncoder()
@@ -195,7 +221,12 @@ public final class WrapperBuilder {
             }
         }
 
-        signWrapperAdHoc(wrapperURL: tmpURL)
+        if useClone {
+            stripQuarantine(tmpURL)
+            signClone(wrapperURL: tmpURL, originalURL: analysis.appURL)
+        } else {
+            signWrapperAdHoc(wrapperURL: tmpURL)
+        }
 
         // Move into place.
         if fileManager.fileExists(atPath: wrapperURL.path) {
@@ -226,8 +257,92 @@ public final class WrapperBuilder {
             customArgs: customArgs,
             customEnv: customEnv,
             createdAt: existing?.createdAt ?? Date(),
-            lastLaunchedAt: existing?.lastLaunchedAt
+            lastLaunchedAt: existing?.lastLaunchedAt,
+            separateDockIcon: useClone ? true : separateDockIcon
         )
+    }
+
+    // MARK: - APFS clone support
+
+    @discardableResult
+    private func run(_ path: String, _ args: [String], capture: Bool = false) -> (status: Int32, out: Data) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = args
+        let pipe = Pipe()
+        process.standardOutput = capture ? pipe : FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return (-1, Data()) }
+        let data = capture ? pipe.fileHandleForReading.readDataToEndOfFile() : Data()
+        process.waitUntilExit()
+        return (process.terminationStatus, data)
+    }
+
+    /// Copy-on-write clone (zero extra space on APFS); falls back to a plain copy across volumes.
+    private func cloneOriginal(_ source: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        if run("/bin/cp", ["-cR", source.path, destination.path]).status != 0 {
+            try? fm.removeItem(at: destination)
+            if run("/bin/cp", ["-R", source.path, destination.path]).status != 0 {
+                throw WrapperBuilderError.buildFailed("Couldn't copy \(source.lastPathComponent).")
+            }
+        }
+    }
+
+    private func stripQuarantine(_ url: URL) {
+        run("/usr/bin/xattr", ["-cr", url.path])
+    }
+
+    static let teamBoundEntitlementKeys: Set<String> = [
+        "com.apple.application-identifier", "com.apple.developer.team-identifier",
+        "keychain-access-groups", "com.apple.developer.aps-environment",
+        "com.apple.developer.associated-domains"
+    ]
+    static let teamBoundEntitlementPrefixes = ["com.apple.developer.icloud-", "com.apple.developer.ubiquity-"]
+    static let keptEntitlementPrefixes = [
+        "com.apple.security.cs.", "com.apple.security.virtualization",
+        "com.apple.security.network.", "com.apple.security.device."
+    ]
+
+    /// Entitlements of the original app minus team-bound ones; only runtime/virtualization/network/device keys are kept.
+    public func filteredEntitlements(of appURL: URL) -> [String: Any] {
+        let out = run("/usr/bin/codesign", ["-d", "--entitlements", ":-", appURL.path], capture: true).out
+        guard let dict = (try? PropertyListSerialization.propertyList(from: out, format: nil)) as? [String: Any] else { return [:] }
+        return dict.filter { key, _ in
+            if Self.teamBoundEntitlementKeys.contains(key) { return false }
+            if Self.teamBoundEntitlementPrefixes.contains(where: { key.hasPrefix($0) }) { return false }
+            return Self.keptEntitlementPrefixes.contains { key.hasPrefix($0) }
+        }
+    }
+
+    private func signClone(wrapperURL: URL, originalURL: URL) {
+        let fm = FileManager.default
+        let entitlements = filteredEntitlements(of: originalURL)
+
+        let frameworks = wrapperURL.appendingPathComponent("Contents/Frameworks")
+        if let items = try? fm.contentsOfDirectory(atPath: frameworks.path) {
+            for item in items where item.hasSuffix(".framework") || item.hasSuffix(".app") || item.hasSuffix(".dylib") {
+                let url = frameworks.appendingPathComponent(item)
+                // Sign helpers nested in the framework first, then the framework itself.
+                if let nested = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
+                    for case let n as URL in nested where n.pathExtension == "app" {
+                        run("/usr/bin/codesign", ["--force", "--sign", "-", n.path])
+                    }
+                }
+                run("/usr/bin/codesign", ["--force", "--sign", "-", url.path])
+            }
+        }
+
+        if !entitlements.isEmpty,
+           let data = try? PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0) {
+            let entURL = fm.temporaryDirectory.appendingPathComponent("twinly-ent-\(UUID().uuidString).plist")
+            defer { try? fm.removeItem(at: entURL) }
+            if (try? data.write(to: entURL)) != nil,
+               run("/usr/bin/codesign", ["--force", "--sign", "-", "--entitlements", entURL.path, wrapperURL.path]).status == 0 {
+                return
+            }
+        }
+        run("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", wrapperURL.path])
     }
 
     public func signWrapperAdHoc(wrapperURL: URL) {

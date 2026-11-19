@@ -13,6 +13,7 @@ struct EditProfileSheet: View {
     @State private var badgeText: String
     @State private var arguments: String
     @State private var environment: String
+    @State private var separateDockIcon: Bool
     @State private var isSaving = false
     @State private var saveError: String?
 
@@ -23,6 +24,7 @@ struct EditProfileSheet: View {
         _badgeText = State(initialValue: profile.badgeText)
         _arguments = State(initialValue: InputParsing.formatArguments(profile.customArgs))
         _environment = State(initialValue: InputParsing.formatEnvironment(profile.customEnv))
+        _separateDockIcon = State(initialValue: profile.separateDockIcon ?? false)
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -72,7 +74,7 @@ struct EditProfileSheet: View {
 
                 ProfileFormFields(
                     name: $name, badgeHex: $badgeHex, badgeText: $badgeText,
-                    arguments: $arguments, environment: $environment,
+                    arguments: $arguments, environment: $environment, separateDockIcon: $separateDockIcon,
                     nameError: nameError, envError: envError
                 )
 
@@ -103,6 +105,7 @@ struct EditProfileSheet: View {
         updated.badgeText = badgeText
         updated.customArgs = InputParsing.tokenizeArguments(arguments)
         updated.customEnv = env
+        updated.separateDockIcon = separateDockIcon
 
         if missing {
             store.updateProfile(updated)

@@ -3,6 +3,7 @@ import Foundation
 public enum AppStrategy: String, Codable, CaseIterable {
     case electronChromium = "electronChromium"
     case genericNonSandboxed = "genericNonSandboxed"
+    case firefoxGecko = "firefoxGecko"
     case sandboxedUnsupported = "sandboxedUnsupported"
 
     public var displayName: String {
@@ -11,6 +12,8 @@ public enum AppStrategy: String, Codable, CaseIterable {
             return "Chromium-based"
         case .genericNonSandboxed:
             return "Standard app"
+        case .firefoxGecko:
+            return "Firefox-based"
         case .sandboxedUnsupported:
             return "Not supported"
         }
@@ -22,6 +25,8 @@ public enum AppStrategy: String, Codable, CaseIterable {
             return "Gets its own data folder, so logins stay separate."
         case .genericNonSandboxed:
             return "Gets its own Library folder for settings and data."
+        case .firefoxGecko:
+            return "Gets its own Firefox profile folder, so logins and tabs stay separate."
         case .sandboxedUnsupported:
             return "macOS locks this app's data to one copy."
         }
@@ -81,6 +86,7 @@ public struct Profile: Identifiable, Codable, Equatable {
     public var customEnv: [String: String]
     public var createdAt: Date
     public var lastLaunchedAt: Date?
+    public var separateDockIcon: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -96,8 +102,10 @@ public struct Profile: Identifiable, Codable, Equatable {
         customArgs: [String] = [],
         customEnv: [String: String] = [:],
         createdAt: Date = Date(),
-        lastLaunchedAt: Date? = nil
+        lastLaunchedAt: Date? = nil,
+        separateDockIcon: Bool? = nil
     ) {
+        self.separateDockIcon = separateDockIcon
         self.id = id
         self.name = name
         self.originalAppPath = originalAppPath
@@ -217,6 +225,7 @@ public struct LauncherConfig: Codable {
     public var profileDirectory: String
     public var arguments: [String]
     public var environment: [String: String]
+    public var separateDockIcon: Bool?
 
     public init(
         version: Int = 1,
@@ -227,8 +236,10 @@ public struct LauncherConfig: Codable {
         strategy: String,
         profileDirectory: String,
         arguments: [String] = [],
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        separateDockIcon: Bool? = nil
     ) {
+        self.separateDockIcon = separateDockIcon
         self.version = version
         self.profileId = profileId
         self.profileName = profileName
