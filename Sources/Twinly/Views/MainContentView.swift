@@ -11,65 +11,70 @@ struct MainContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            VStack(spacing: 0) {
-                List(selection: sidebarSelection) {
-                    Section("Library") {
-                        Label("Apps", systemImage: "square.on.square")
-                            .badge(store.profiles.count)
-                            .tag(SidebarSection.apps)
-                        Label("Command Line", systemImage: "terminal")
-                            .badge(store.cliProfiles.count)
-                            .tag(SidebarSection.commandLine)
-                    }
-                    Section("Help") {
-                        Label("How It Works", systemImage: "questionmark.circle")
-                            .tag(SidebarSection.howItWorks)
-                    }
+            List(selection: sidebarSelection) {
+                Section("Library") {
+                    Label("Apps", systemImage: "square.on.square")
+                        .lineLimit(1)
+                        .badge(store.profiles.count)
+                        .tag(SidebarSection.apps)
+                    Label("Command Line", systemImage: "terminal")
+                        .lineLimit(1)
+                        .badge(store.cliProfiles.count)
+                        .tag(SidebarSection.commandLine)
                 }
-                .listStyle(.sidebar)
-
-                Divider()
-                    .opacity(0.5)
-                Button {
-                    withAnimation(.easeOut(duration: 0.14)) { ui.section = .settings }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "gearshape")
-                            .font(.body)
-                            .rotationEffect(.degrees(settingsHovered ? 30 : 0))
-                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: settingsHovered)
-                            .foregroundStyle(ui.section == .settings ? Color.accentColor : .secondary)
-                        Text("Settings")
-                            .font(.body.weight(ui.section == .settings ? .medium : .regular))
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        if updater.latestAvailableRelease != nil {
-                            Text("1")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.accentColor))
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(ui.section == .settings
-                                  ? Color.accentColor.opacity(0.15)
-                                  : (settingsHovered ? Color.primary.opacity(0.06) : Color.clear))
-                    )
-                    .contentShape(Rectangle())
+                Section("Help") {
+                    Label("How It Works", systemImage: "questionmark.circle")
+                        .lineLimit(1)
+                        .tag(SidebarSection.howItWorks)
                 }
-                .buttonStyle(.plain)
-                .onHover { hover in
-                    withAnimation(.easeOut(duration: 0.14)) { settingsHovered = hover }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
             }
-            .clipped()
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                        .opacity(0.5)
+                    Button {
+                        withAnimation(.easeOut(duration: 0.14)) { ui.section = .settings }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "gearshape")
+                                .font(.body)
+                                .foregroundStyle(ui.section == .settings ? Color.accentColor : .secondary)
+                            Text("Settings")
+                                .font(.body.weight(ui.section == .settings ? .medium : .regular))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                            if updater.latestAvailableRelease != nil {
+                                Text("1")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.accentColor))
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(ui.section == .settings
+                                      ? Color.accentColor.opacity(0.15)
+                                      : (settingsHovered ? Color.primary.opacity(0.06) : Color.clear))
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hover in
+                        withAnimation(.easeOut(duration: 0.14)) { settingsHovered = hover }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                }
+                .frame(height: 52)
+                .clipped()
+            }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
         } detail: {
             VStack(spacing: 0) {
