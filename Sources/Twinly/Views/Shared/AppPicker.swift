@@ -82,12 +82,16 @@ struct AppPickerRow: View {
             HStack(spacing: 10) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
                     .resizable().frame(width: 28, height: 28)
+                    .scaleEffect(hovering ? 1.06 : 1.0)
                 Text(app.name).font(.body.weight(.medium)).lineLimit(1)
                 Spacer()
-                if hovering {
-                    Text("Select").font(.callout).foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text("Select").font(.callout)
+                    Image(systemName: "chevron.right").font(.caption)
                 }
+                .foregroundStyle(.secondary)
+                .opacity(hovering ? 1 : 0)
+                .offset(x: hovering ? 0 : -4)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -97,7 +101,9 @@ struct AppPickerRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { hover in
+            withAnimation(.easeOut(duration: 0.12)) { hovering = hover }
+        }
     }
 }
 

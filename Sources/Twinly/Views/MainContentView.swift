@@ -7,6 +7,7 @@ struct MainContentView: View {
     @ObservedObject private var updater = UpdateChecker.shared
     @State private var bannerDismissed = false
     @State private var loadErrorAlert: String?
+    @State private var settingsHovered = false
 
     var body: some View {
         NavigationSplitView {
@@ -35,6 +36,8 @@ struct MainContentView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "gearshape")
                                 .font(.body)
+                                .rotationEffect(.degrees(settingsHovered ? 30 : 0))
+                                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: settingsHovered)
                                 .foregroundStyle(ui.section == .settings ? Color.accentColor : .secondary)
                             Text("Settings")
                                 .font(.body.weight(ui.section == .settings ? .medium : .regular))
@@ -53,11 +56,16 @@ struct MainContentView: View {
                         .padding(.vertical, 8)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(ui.section == .settings ? Color.primary.opacity(0.1) : Color.clear)
+                                .fill(ui.section == .settings
+                                      ? Color.accentColor.opacity(0.15)
+                                      : (settingsHovered ? Color.primary.opacity(0.06) : Color.clear))
                         )
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .onHover { hover in
+                        withAnimation(.easeOut(duration: 0.14)) { settingsHovered = hover }
+                    }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                 }
@@ -67,9 +75,14 @@ struct MainContentView: View {
             VStack(spacing: 0) {
                 if let release = updater.latestAvailableRelease, !bannerDismissed, ui.section != .settings {
                     updateBanner(release)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 detailContent
+                    .id(ui.section)
+                    .transition(.opacity)
             }
+            .animation(.easeInOut(duration: 0.16), value: ui.section)
+            .animation(.spring(response: 0.28, dampingFraction: 0.82), value: bannerDismissed)
         }
         .sheet(item: $ui.sheet) { route in
             switch route {
@@ -151,7 +164,7 @@ struct MainContentView: View {
             Spacer()
             Button("Update…") { ui.section = .settings }
                 .buttonStyle(.borderedProminent).tint(.white).foregroundStyle(.blue).controlSize(.small)
-            Button { bannerDismissed = true } label: { Image(systemName: "xmark") }
+            Button { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { bannerDismissed = true } } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
         }
         .foregroundStyle(.white)

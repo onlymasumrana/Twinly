@@ -14,19 +14,9 @@ struct BadgeColorPicker: View {
     var body: some View {
         HStack(spacing: 8) {
             ForEach(Self.presets, id: \.hex) { preset in
-                let selected = hex.uppercased() == preset.hex
-                Button {
-                    hex = preset.hex
-                } label: {
-                    Circle()
-                        .fill(Color(nsColor: NSColor(hex: preset.hex) ?? .systemBlue))
-                        .frame(width: 20, height: 20)
-                        .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: selected ? 2 : 0).padding(-3))
+                ColorSwatchButton(preset: preset, selected: hex.uppercased() == preset.hex) {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { hex = preset.hex }
                 }
-                .buttonStyle(.plain)
-                .help(preset.name)
-                .accessibilityLabel(preset.name)
-                .accessibilityAddTraits(selected ? .isSelected : [])
             }
             ColorPicker("Custom color", selection: customColor, supportsOpacity: false)
                 .labelsHidden()
@@ -39,5 +29,29 @@ struct BadgeColorPicker: View {
             get: { Color(nsColor: NSColor(hex: hex) ?? .systemBlue) },
             set: { hex = NSColor($0).hexString }
         )
+    }
+}
+
+private struct ColorSwatchButton: View {
+    let preset: (name: String, hex: String)
+    let selected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Circle()
+                .fill(Color(nsColor: NSColor(hex: preset.hex) ?? .systemBlue))
+                .frame(width: 20, height: 20)
+                .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3).opacity(selected ? 1 : 0))
+                .scaleEffect(isHovered ? (selected ? 1.08 : 1.18) : 1.0)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.spring(response: 0.22, dampingFraction: 0.65), value: isHovered)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: selected)
+        .help(preset.name)
+        .accessibilityLabel(preset.name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

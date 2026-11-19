@@ -13,7 +13,7 @@ struct StatusLine: View {
         switch kind {
         case .running:
             HStack(spacing: 4) {
-                Circle().fill(Color.green).frame(width: 8, height: 8)
+                RunningDot()
                 Text("Running")
             }
         case .missing(let help, let label):
@@ -28,6 +28,26 @@ struct StatusLine: View {
             } else {
                 Text("Not opened yet")
             }
+        }
+    }
+}
+
+/// Green dot with a softly pulsing halo for active instances.
+private struct RunningDot: View {
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.green.opacity(0.28))
+                .frame(width: 14, height: 14)
+                .scaleEffect(pulse ? 1.0 : 0.65)
+                .opacity(pulse ? 0.5 : 1.0)
+            Circle().fill(Color.green).frame(width: 8, height: 8)
+        }
+        .frame(width: 14, height: 14)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true)) { pulse = true }
         }
     }
 }

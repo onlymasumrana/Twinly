@@ -10,11 +10,16 @@ struct CopyButton: View {
         Button {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
-            copied = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.65)) { copied = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.65)) { copied = false }
+            }
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .id(copied)
+                .transition(.scale(scale: 0.5).combined(with: .opacity))
         }
+        .animation(.spring(response: 0.24, dampingFraction: 0.65), value: copied)
         .buttonStyle(.borderless)
         .help(help)
         .accessibilityLabel(help)

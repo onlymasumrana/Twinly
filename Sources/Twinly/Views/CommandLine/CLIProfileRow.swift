@@ -4,6 +4,7 @@ import TwinlyCore
 struct CLIProfileRow: View {
     @EnvironmentObject var ui: UIState
     let profile: CLIProfile
+    @State private var hovered = false
 
     private var toolMissing: Bool { !FileManager.default.fileExists(atPath: profile.realBinaryPath) }
 
@@ -14,6 +15,8 @@ struct CLIProfileRow: View {
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 40, height: 40)
                 .background(RoundedRectangle(cornerRadius: 9).fill(Color.accentColor.opacity(0.12)))
+                .scaleEffect(hovered ? 1.05 : 1.0)
+                .animation(.spring(response: 0.24, dampingFraction: 0.72), value: hovered)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -52,6 +55,14 @@ struct CLIProfileRow: View {
                 .controlSize(.small)
         }
         .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(hovered ? Color.primary.opacity(0.04) : Color.clear)
+        )
         .contentShape(Rectangle())
+        .onHover { hover in
+            withAnimation(.easeOut(duration: 0.15)) { hovered = hover }
+        }
     }
 }

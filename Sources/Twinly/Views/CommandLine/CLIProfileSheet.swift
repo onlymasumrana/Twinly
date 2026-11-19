@@ -22,6 +22,7 @@ struct CLIProfileSheet: View {
     @State private var configVar = "CLAUDE_CONFIG_DIR"
     @State private var environment = ""
     @State private var showAdvanced = false
+    @State private var advancedHovered = false
     @State private var isFinding = false
     @State private var isSaving = false
     @State private var buildError: String?
@@ -112,7 +113,7 @@ struct CLIProfileSheet: View {
 
                 Section {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.84)) {
                             showAdvanced.toggle()
                         }
                     } label: {
@@ -128,9 +129,12 @@ struct CLIProfileSheet: View {
                             Spacer()
                         }
                         .padding(.vertical, 4)
+                        .padding(.horizontal, 4)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(advancedHovered ? Color.primary.opacity(0.05) : Color.clear))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .onHover { hover in withAnimation(.easeOut(duration: 0.14)) { advancedHovered = hover } }
 
                     if showAdvanced {
                         VStack(alignment: .leading, spacing: 4) {
@@ -139,6 +143,7 @@ struct CLIProfileSheet: View {
                             if let configVarError = configVarError { InlineError(text: configVarError) }
                         }
                         .padding(.top, 4)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Environment")
                             TextEditor(text: $environment)
@@ -153,6 +158,7 @@ struct CLIProfileSheet: View {
                             }
                         }
                         .padding(.top, 4)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                         LabeledContent("Config folder") {
                             Text(configFolderPath)
                                 .font(.system(.callout, design: .monospaced))
@@ -161,6 +167,7 @@ struct CLIProfileSheet: View {
                                 .textSelection(.enabled)
                         }
                         .padding(.top, 4)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
 

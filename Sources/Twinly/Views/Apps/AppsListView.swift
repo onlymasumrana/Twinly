@@ -26,6 +26,8 @@ struct AppsListView: View {
                 list
             }
         }
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.profiles.count)
+        .animation(.easeOut(duration: 0.15), value: search)
         .searchable(text: $search, placement: .toolbar, prompt: "Search")
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             AppPicker.loadApp(from: providers) { url in ui.sheet = .newApp(prefill: url) }

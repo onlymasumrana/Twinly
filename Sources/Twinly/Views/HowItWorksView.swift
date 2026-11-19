@@ -119,11 +119,12 @@ private struct ExpandableNoteRow: View {
     let title: String
     let bodyText: String
     @State private var isExpanded = false
+    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.84)) {
                     isExpanded.toggle()
                 }
             } label: {
@@ -139,9 +140,12 @@ private struct ExpandableNoteRow: View {
                     Spacer()
                 }
                 .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(isHovered ? Color.primary.opacity(0.05) : Color.clear))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { hover in withAnimation(.easeOut(duration: 0.14)) { isHovered = hover } }
 
             if isExpanded {
                 Text(bodyText)
@@ -150,6 +154,7 @@ private struct ExpandableNoteRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 20)
                     .padding(.bottom, 6)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }

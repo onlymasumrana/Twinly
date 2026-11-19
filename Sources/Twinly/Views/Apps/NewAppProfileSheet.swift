@@ -14,6 +14,8 @@ struct NewAppProfileSheet: View {
     @State private var buildError: String?
     @State private var isCreating = false
     @State private var isDropTargeted = false
+    @State private var dropZoneHovered = false
+    @State private var isSearchHovered = false
     @State private var appSearch = ""
     @State private var isSearchOpen = false
     @State private var canOpenOnFocus = false
@@ -35,11 +37,16 @@ struct NewAppProfileSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
 
-            if let analysis = analysis {
-                stepTwo(analysis)
-            } else {
-                stepOne
+            ZStack {
+                if let analysis = analysis {
+                    stepTwo(analysis)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    stepOne
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             }
+            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: analysis == nil)
 
             Divider()
             SheetFooter(
@@ -79,7 +86,7 @@ struct NewAppProfileSheet: View {
                     if isSearchOpen {
                         appList
                             .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
-                            .transition(.opacity)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -98,9 +105,13 @@ struct NewAppProfileSheet: View {
         }
     }
 
+    private func setSearchOpen(_ open: Bool) {
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) { isSearchOpen = open }
+    }
+
     private func closeSearch() {
         appSearch = ""
-        isSearchOpen = false
+        setSearchOpen(false)
         searchFocused = false
     }
 
@@ -109,6 +120,7 @@ struct NewAppProfileSheet: View {
             Image(systemName: "arrow.down.app")
                 .font(.system(size: 36))
                 .foregroundStyle(isDropTargeted ? Color.accentColor : Color.secondary)
+                .offset(y: (isDropTargeted || dropZoneHovered) ? -2 : 0)
             Text("Drop an app here").font(.headline)
             Text("or").font(.callout).foregroundStyle(.secondary)
             Button("Choose App…") {
@@ -121,7 +133,11 @@ struct NewAppProfileSheet: View {
                 .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.35),
                               style: StrokeStyle(lineWidth: 1.5, dash: [6]))
         )
+        .scaleEffect(isDropTargeted ? 1.015 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.72), value: isDropTargeted)
+        .animation(.spring(response: 0.25, dampingFraction: 0.72), value: dropZoneHovered)
         .contentShape(Rectangle())
+        .onHover { dropZoneHovered = $0 }
         .onTapGesture { closeSearch() }
     }
 
@@ -138,10 +154,10 @@ struct NewAppProfileSheet: View {
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
                 .onChange(of: searchFocused) { focused in
-                    if focused && canOpenOnFocus { isSearchOpen = true }
+                    if focused && canOpenOnFocus { setSearchOpen(true) }
                 }
                 .onChange(of: appSearch) { new in
-                    if !new.isEmpty { isSearchOpen = true }
+                    if !new.isEmpty { setSearchOpen(true) }
                 }
                 .onSubmit { if let first = filteredApps.first { closeSearch(); inspect(first.url) } }
             if isSearchOpen || !appSearch.isEmpty {
@@ -158,7 +174,7 @@ struct NewAppProfileSheet: View {
             if !isSearchOpen {
                 Color.clear
                     .contentShape(Rectangle())
-                    .onTapGesture { isSearchOpen = true; searchFocused = true }
+                    .onTapGesture { setSearchOpen(true); searchFocused = true }
             }
         }
         .background(
@@ -167,8 +183,17 @@ struct NewAppProfileSheet: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+                .strokeBorder(searchBorderColor, lineWidth: 1)
         )
+        .shadow(color: (isSearchOpen || searchFocused) ? Color.accentColor.opacity(0.18) : .clear, radius: 4)
+        .animation(.easeOut(duration: 0.15), value: isSearchHovered)
+        .animation(.easeOut(duration: 0.15), value: searchFocused)
+        .onHover { isSearchHovered = $0 }
+    }
+
+    private var searchBorderColor: Color {
+        if isSearchOpen || searchFocused { return Color.accentColor.opacity(0.8) }
+        return Color.secondary.opacity(isSearchHovered ? 0.55 : 0.35)
     }
 
     private var appList: some View {
@@ -281,10 +306,12 @@ struct NewAppProfileSheet: View {
     // MARK: Actions
 
     private func reset() {
-        analysis = nil
-        inspectingURL = nil
-        inspectError = nil
-        buildError = nil
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            analysis = nil
+            inspectingURL = nil
+            inspectError = nil
+            buildError = nil
+        }
     }
 
     private func inspect(_ url: URL) {
@@ -299,8 +326,8 @@ struct NewAppProfileSheet: View {
                 inspectingURL = nil
                 switch result {
                 case .success(let found):
-                    analysis = found
                     applyDefaults(for: found)
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { analysis = found }
                 case .failure(let error):
                     inspectError = error.localizedDescription
                 }

@@ -39,6 +39,8 @@ struct CommandLineListView: View {
                 list
             }
         }
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: store.cliProfiles.count)
+        .animation(.easeOut(duration: 0.15), value: search)
         .searchable(text: $search, placement: .toolbar, prompt: "Search")
         .task { await checkPath() }
     }
