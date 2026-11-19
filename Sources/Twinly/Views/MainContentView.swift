@@ -11,65 +11,65 @@ struct MainContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: sidebarSelection) {
-                Section("Library") {
-                    Label("Apps", systemImage: "square.on.square")
-                        .badge(store.profiles.count)
-                        .tag(SidebarSection.apps)
-                    Label("Command Line", systemImage: "terminal")
-                        .badge(store.cliProfiles.count)
-                        .tag(SidebarSection.commandLine)
+            VStack(spacing: 0) {
+                List(selection: sidebarSelection) {
+                    Section("Library") {
+                        Label("Apps", systemImage: "square.on.square")
+                            .badge(store.profiles.count)
+                            .tag(SidebarSection.apps)
+                        Label("Command Line", systemImage: "terminal")
+                            .badge(store.cliProfiles.count)
+                            .tag(SidebarSection.commandLine)
+                    }
+                    Section("Help") {
+                        Label("How It Works", systemImage: "questionmark.circle")
+                            .tag(SidebarSection.howItWorks)
+                    }
                 }
-                Section("Help") {
-                    Label("How It Works", systemImage: "questionmark.circle")
-                        .tag(SidebarSection.howItWorks)
-                }
-            }
-            .listStyle(.sidebar)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
-                    Divider()
-                        .opacity(0.5)
-                    Button {
-                        ui.section = .settings
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "gearshape")
-                                .font(.body)
-                                .rotationEffect(.degrees(settingsHovered ? 30 : 0))
-                                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: settingsHovered)
-                                .foregroundStyle(ui.section == .settings ? Color.accentColor : .secondary)
-                            Text("Settings")
-                                .font(.body.weight(ui.section == .settings ? .medium : .regular))
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if updater.latestAvailableRelease != nil {
-                                Text("1")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.accentColor))
-                            }
+                .listStyle(.sidebar)
+
+                Divider()
+                    .opacity(0.5)
+                Button {
+                    withAnimation(.easeOut(duration: 0.14)) { ui.section = .settings }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "gearshape")
+                            .font(.body)
+                            .rotationEffect(.degrees(settingsHovered ? 30 : 0))
+                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: settingsHovered)
+                            .foregroundStyle(ui.section == .settings ? Color.accentColor : .secondary)
+                        Text("Settings")
+                            .font(.body.weight(ui.section == .settings ? .medium : .regular))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if updater.latestAvailableRelease != nil {
+                            Text("1")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.accentColor))
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(ui.section == .settings
-                                      ? Color.accentColor.opacity(0.15)
-                                      : (settingsHovered ? Color.primary.opacity(0.06) : Color.clear))
-                        )
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .onHover { hover in
-                        withAnimation(.easeOut(duration: 0.14)) { settingsHovered = hover }
-                    }
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(ui.section == .settings
+                                  ? Color.accentColor.opacity(0.15)
+                                  : (settingsHovered ? Color.primary.opacity(0.06) : Color.clear))
+                    )
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .onHover { hover in
+                    withAnimation(.easeOut(duration: 0.14)) { settingsHovered = hover }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
             }
+            .clipped()
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
         } detail: {
             VStack(spacing: 0) {
@@ -78,10 +78,8 @@ struct MainContentView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 detailContent
-                    .id(ui.section)
-                    .transition(.opacity)
             }
-            .animation(.easeInOut(duration: 0.16), value: ui.section)
+            .navigationTitle(sectionTitle)
             .animation(.spring(response: 0.28, dampingFraction: 0.82), value: bannerDismissed)
         }
         .sheet(item: $ui.sheet) { route in
@@ -147,13 +145,22 @@ struct MainContentView: View {
     @ViewBuilder private var detailContent: some View {
         switch ui.section {
         case .apps:
-            AppsListView().navigationTitle("Apps")
+            AppsListView()
         case .commandLine:
-            CommandLineListView().navigationTitle("Command Line")
+            CommandLineListView()
         case .howItWorks:
-            HowItWorksView().navigationTitle("How It Works")
+            HowItWorksView()
         case .settings:
-            SettingsView().navigationTitle("Settings")
+            SettingsView()
+        }
+    }
+
+    private var sectionTitle: String {
+        switch ui.section {
+        case .apps: return "Apps"
+        case .commandLine: return "Command Line"
+        case .howItWorks: return "How It Works"
+        case .settings: return "Settings"
         }
     }
 
@@ -162,7 +169,7 @@ struct MainContentView: View {
             Image(systemName: "arrow.down.circle.fill")
             Text("Twinly \(release.tagName) is available").fontWeight(.medium)
             Spacer()
-            Button("Update…") { ui.section = .settings }
+            Button("Update…") { withAnimation(.easeOut(duration: 0.14)) { ui.section = .settings } }
                 .buttonStyle(.borderedProminent).tint(.white).foregroundStyle(.blue).controlSize(.small)
             Button { withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { bannerDismissed = true } } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
